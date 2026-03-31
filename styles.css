@@ -563,3 +563,252 @@ header {
   .header-title   { font-size: 28px; }
   .content        { padding: 16px 12px 60px; }
 }
+
+/* ─── Home screen ─────────────────────────────────────────────────────────────── */
+.home-header {
+  padding: calc(env(safe-area-inset-top, 0px) + 16px) 20px 12px;
+  position: sticky;
+  top: 0;
+  background: rgba(0,0,0,0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  z-index: 50;
+  border-bottom: 0.5px solid var(--sep);
+}
+
+.home-date {
+  font-size: 13px;
+  color: var(--t2);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.home-title {
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--t1);
+  letter-spacing: 0.37px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.home-reminders {
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reminder-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--bg2);
+  border-radius: var(--r);
+  padding: 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.reminder-card:active { background: var(--bg3); }
+
+.reminder-icon { font-size: 24px; }
+.reminder-text { font-size: 15px; color: var(--t1); letter-spacing: -0.24px; }
+
+.no-reminders {
+  font-size: 15px;
+  color: var(--t2);
+  text-align: center;
+  padding: 40px 20px;
+  line-height: 1.6;
+}
+
+/* ─── Módulo view ─────────────────────────────────────────────────────────────── */
+.module-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px 12px;
+  background: rgba(0,0,0,0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 0.5px solid var(--sep);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.back-btn {
+  font-size: 17px;
+  font-weight: 400;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+  letter-spacing: -0.24px;
+  flex-shrink: 0;
+}
+
+.module-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--t1);
+  letter-spacing: -0.41px;
+  flex: 1;
+  text-align: center;
+  margin-right: 60px;
+}
+
+.module-content {
+  padding-bottom: 80px;
+}
+
+/* ─── Bottom bar ──────────────────────────────────────────────────────────────── */
+#bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(28,28,30,0.97);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-top: 0.5px solid var(--sep);
+  z-index: 200;
+  padding: 8px 16px calc(env(safe-area-inset-bottom, 0px) + 8px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  transition: height 0.3s cubic-bezier(0.4,0,0.2,1);
+}
+
+#bottom-bar.expanded {
+  flex-direction: column;
+  align-items: stretch;
+  height: 70vh;
+  overflow-y: auto;
+  justify-content: flex-start;
+}
+
+.bar-icons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+}
+
+.bar-icon-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  transition: background 0.15s;
+  min-width: 56px;
+}
+.bar-icon-btn:active { background: var(--bg3); }
+
+.bar-icon { font-size: 24px; line-height: 1; }
+.bar-label { font-size: 11px; color: var(--t2); letter-spacing: -0.08px; }
+.bar-hint { font-size: 13px; color: var(--t3); }
+
+.bar-expand-btn {
+  font-size: 20px;
+  color: var(--t2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.bar-close-btn {
+  font-size: 15px;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 12px 0 8px;
+  text-align: left;
+  font-weight: 500;
+}
+
+/* ─── Module grid (barra expandida) ──────────────────────────────────────────── */
+.module-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 8px 0 16px;
+}
+
+.module-grid-card {
+  background: var(--bg2);
+  border-radius: var(--r);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.module-grid-card.pinned { background: rgba(50,215,75,0.1); border: 1px solid rgba(50,215,75,0.3); }
+
+.module-grid-icon { font-size: 36px; line-height: 1; }
+.module-grid-label { font-size: 14px; font-weight: 500; color: var(--t1); }
+
+.pin-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 18px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--t3);
+  padding: 4px;
+}
+.pin-btn.pinned { color: var(--accent); }
+
+/* ─── Toast ───────────────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 90px;
+  left: 50%;
+  transform: translateX(-50%) translateY(10px);
+  background: var(--bg3);
+  color: var(--t1);
+  font-size: 14px;
+  padding: 10px 20px;
+  border-radius: 980px;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 999;
+  white-space: nowrap;
+  border: 0.5px solid var(--sep);
+}
+.toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ─── Tab panels (dentro de módulo) ──────────────────────────────────────────── */
+.tab-panel { display: none; }
+.tab-panel.active { display: block; animation: fadeIn 0.2s ease; }
+
+/* ─── Load error ──────────────────────────────────────────────────────────────── */
+.load-error {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--red);
+  font-size: 15px;
+}
