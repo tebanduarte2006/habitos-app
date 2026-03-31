@@ -812,3 +812,232 @@ header {
   color: var(--red);
   font-size: 15px;
 }
+
+/* ─── Gym module ──────────────────────────────────────────────────────────────── */
+.gym-start-screen {
+  padding: 32px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.gym-session-name-input {
+  width: 100%;
+  background: var(--bg2);
+  border: none;
+  border-radius: var(--r);
+  padding: 16px;
+  font-size: 17px;
+  color: var(--t1);
+  font-family: -apple-system, sans-serif;
+  outline: none;
+}
+.gym-session-name-input::placeholder { color: var(--t3); }
+
+.gym-btn-primary {
+  width: 100%;
+  padding: 16px;
+  background: var(--accent);
+  color: #000;
+  font-size: 17px;
+  font-weight: 700;
+  border: none;
+  border-radius: var(--r);
+  cursor: pointer;
+  font-family: -apple-system, sans-serif;
+}
+
+.gym-btn-danger {
+  width: 100%;
+  padding: 16px;
+  background: rgba(255,69,58,0.15);
+  color: var(--red);
+  font-size: 17px;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--r);
+  cursor: pointer;
+  font-family: -apple-system, sans-serif;
+}
+
+.gym-btn-secondary {
+  width: 100%;
+  padding: 14px;
+  background: var(--bg2);
+  color: var(--t1);
+  font-size: 15px;
+  font-weight: 500;
+  border: none;
+  border-radius: var(--r);
+  cursor: pointer;
+  font-family: -apple-system, sans-serif;
+}
+
+.gym-active-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: var(--bg2);
+  border-radius: var(--r);
+  margin: 16px 20px 0;
+}
+
+.gym-session-title { font-size: 20px; font-weight: 700; color: var(--t1); }
+.gym-timer { font-size: 28px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+
+.gym-exercises-list { padding: 0 20px; }
+
+.gym-exercise-card {
+  background: var(--bg2);
+  border-radius: var(--r);
+  padding: 16px;
+  margin-top: 12px;
+}
+
+.gym-exercise-name { font-size: 17px; font-weight: 600; color: var(--t1); margin-bottom: 10px; }
+
+.gym-set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 0.5px solid var(--sep2);
+  font-size: 15px;
+  color: var(--t2);
+}
+.gym-set-row:last-child { border-bottom: none; }
+.gym-set-delete { background: none; border: none; color: var(--red); font-size: 18px; cursor: pointer; padding: 0 4px; }
+
+.gym-add-set-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  align-items: center;
+}
+
+.gym-input-small {
+  flex: 1;
+  background: var(--bg3);
+  border: none;
+  border-radius: var(--r-xs);
+  padding: 10px 12px;
+  font-size: 15px;
+  color: var(--t1);
+  font-family: -apple-system, sans-serif;
+  outline: none;
+  min-width: 0;
+}
+
+.gym-unit-toggle {
+  display: flex;
+  background: var(--bg3);
+  border-radius: var(--r-xs);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.gym-unit-toggle button {
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  color: var(--t2);
+  font-size: 13px;
+  cursor: pointer;
+  font-family: -apple-system, sans-serif;
+}
+.gym-unit-toggle button.active { background: var(--accent); color: #000; font-weight: 700; }
+
+.gym-confirm-set-btn {
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: var(--r-xs);
+  padding: 10px 16px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.gym-search-input {
+  width: 100%;
+  background: var(--bg2);
+  border: none;
+  border-radius: var(--r);
+  padding: 14px 16px;
+  font-size: 17px;
+  color: var(--t1);
+  font-family: -apple-system, sans-serif;
+  outline: none;
+  margin-bottom: 4px;
+}
+
+.gym-suggestions {
+  background: var(--bg2);
+  border-radius: var(--r);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.gym-suggestion-item {
+  padding: 12px 16px;
+  font-size: 15px;
+  color: var(--t1);
+  border-bottom: 0.5px solid var(--sep2);
+  cursor: pointer;
+}
+.gym-suggestion-item:last-child { border-bottom: none; }
+.gym-suggestion-item:active { background: var(--bg3); }
+
+.gym-muscle-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 12px 0;
+}
+.gym-muscle-btn {
+  padding: 12px;
+  background: var(--bg2);
+  border: 1.5px solid transparent;
+  border-radius: var(--r-sm);
+  font-size: 14px;
+  color: var(--t2);
+  cursor: pointer;
+  font-family: -apple-system, sans-serif;
+  text-align: center;
+}
+.gym-muscle-btn.selected { border-color: var(--accent); color: var(--accent); background: rgba(50,215,75,0.1); }
+
+.gym-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 500;
+  display: flex;
+  align-items: flex-end;
+}
+.gym-modal {
+  background: var(--bg2);
+  border-radius: var(--r) var(--r) 0 0;
+  padding: 24px 20px calc(env(safe-area-inset-bottom,0px) + 24px);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.gym-modal-title { font-size: 20px; font-weight: 700; color: var(--t1); margin-bottom: 4px; }
+
+.gym-summary-screen {
+  padding: 24px 20px;
+}
+.gym-summary-title { font-size: 28px; font-weight: 700; color: var(--t1); margin-bottom: 4px; }
+.gym-summary-duration { font-size: 17px; color: var(--accent); font-weight: 600; margin-bottom: 20px; }
+.gym-summary-exercise { margin-bottom: 16px; }
+.gym-summary-exercise-name { font-size: 17px; font-weight: 600; color: var(--t1); margin-bottom: 6px; }
+.gym-summary-set { font-size: 15px; color: var(--t2); padding: 4px 0; }
+
+.gym-actions-row {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

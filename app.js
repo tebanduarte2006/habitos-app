@@ -441,5 +441,15 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
+  registerModule({
+    id: 'gym',
+    label: 'Gym',
+    icon: '💪',
+    color: '#FF375F',
+    type: 'dynamic',
+    reminder: function() { return 'Registra tu sesión de hoy'; },
+    render: function(container) { renderGymModule(container); }
+  });
+
   renderHomeScreen();
 });
