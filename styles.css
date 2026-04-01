@@ -30,6 +30,10 @@
   --sep: rgba(84,84,88,0.65);
   --sep2: rgba(84,84,88,0.45);
 
+  /* Tipografía */
+  --font-display: 'Space Grotesk', -apple-system, sans-serif;
+  --font-body:    'Inter', -apple-system, sans-serif;
+
   /* Forma */
   --r:   16px;
   --r-sm: 12px;
@@ -41,8 +45,9 @@
 body {
   background: var(--bg);
   color: var(--t1);
-  font-family: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
+  font-family: var(--font-body);
   font-size: 17px;
+  line-height: 1.5;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
@@ -72,6 +77,8 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+button, input, select, textarea { font-family: inherit; }
+
 /* ─── Base ────────────────────────────────────────────────────────────────────── */
 html { font-size: 16px; }
 
@@ -98,19 +105,19 @@ header {
 }
 
 .header-title {
-  font-family: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif;
+  font-family: var(--font-display);
   font-size: 34px;
   font-weight: 700;
-  letter-spacing: 0.37px;
+  letter-spacing: -0.5px;
   color: var(--t1);
-  line-height: 1.2;
+  line-height: 1.15;
 }
 
 .header-sub {
   font-size: 13px;
   color: var(--t2);
   margin-top: 2px;
-  letter-spacing: -0.08px;
+  letter-spacing: 0;
 }
 
 /* Phase pill — estilo chip Apple Fitness */
@@ -127,7 +134,7 @@ header {
   flex-shrink: 0;
   margin-top: 6px;
   transition: opacity 0.15s;
-  letter-spacing: -0.2px;
+  letter-spacing: 0;
 }
 .phase-pill:active { opacity: 0.75; }
 
@@ -153,7 +160,6 @@ header {
 .main-tabs::-webkit-scrollbar { display: none; }
 
 .main-tab {
-  font-family: -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
   font-size: 15px;
   font-weight: 400;
   padding: 10px 14px;
@@ -165,7 +171,7 @@ header {
   outline: none;
   white-space: nowrap;
   transition: color 0.15s, border-color 0.15s;
-  letter-spacing: -0.24px;
+  letter-spacing: 0;
 }
 .main-tab.active {
   color: var(--accent);
@@ -190,14 +196,12 @@ header {
 
 /* ─── Section label ───────────────────────────────────────────────────────────── */
 .section-label {
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: -0.08px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.6px;
   color: var(--t2);
   margin: 28px 0 8px 4px;
   text-transform: uppercase;
-  font-size: 12px;
-  letter-spacing: 0.5px;
 }
 .section-label:first-child { margin-top: 0; }
 
@@ -231,7 +235,7 @@ header {
   border: none;
   padding: 2px 4px;
   cursor: pointer;
-  letter-spacing: -0.24px;
+  letter-spacing: 0;
 }
 .reset-btn:active { opacity: 0.6; }
 
@@ -277,7 +281,7 @@ header {
   font-weight: 400;
   color: var(--t1);
   line-height: 1.3;
-  letter-spacing: -0.41px;
+  letter-spacing: 0;
   transition: color 0.15s;
 }
 
@@ -286,7 +290,7 @@ header {
   color: var(--t2);
   line-height: 1.55;
   margin-top: 2px;
-  letter-spacing: -0.08px;
+  letter-spacing: 0;
 }
 
 .product-tag {
@@ -298,7 +302,7 @@ header {
   background: rgba(50,215,75,0.12);
   color: var(--accent);
   margin-top: 5px;
-  letter-spacing: -0.08px;
+  letter-spacing: 0;
 }
 
 /* Checkbox circular — estilo Apple Fitness ring */
@@ -364,7 +368,7 @@ header {
   margin-bottom: 12px;
   font-size: 15px;
   line-height: 1.55;
-  letter-spacing: -0.24px;
+  letter-spacing: 0;
 }
 .alert-label {
   font-size: 11px;
@@ -403,7 +407,7 @@ header {
   background: var(--bg2);
   transition: all 0.15s;
   outline: none;
-  letter-spacing: -0.15px;
+  letter-spacing: 0;
 }
 .sub-tab:active { opacity: 0.7; }
 .sub-tab.active {
@@ -436,7 +440,7 @@ header {
 .razor-card.ok-card   { background: rgba(50,215,75,0.12); }
 
 .rc-label { font-size: 11px; color: var(--t2); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
-.rc-val   { font-size: 30px; font-weight: 700; line-height: 1; margin-bottom: 4px; color: var(--t1); letter-spacing: -0.5px; }
+.rc-val   { font-family: var(--font-display); font-size: 30px; font-weight: 700; line-height: 1; margin-bottom: 4px; color: var(--t1); letter-spacing: -0.5px; }
 .warn-card .rc-val { color: var(--red); }
 .ok-card   .rc-val { color: var(--accent); text-shadow: 0 0 12px var(--accent-glow); }
 .rc-val-default    { color: var(--t1); }
@@ -478,8 +482,8 @@ header {
   margin-bottom: 16px;
 }
 
-.tracker-title { font-size: 20px; font-weight: 700; color: var(--t1); margin-bottom: 3px; letter-spacing: -0.45px; }
-.tracker-sub   { font-size: 15px; color: var(--t2); margin-bottom: 16px; letter-spacing: -0.24px; }
+.tracker-title { font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--t1); margin-bottom: 3px; letter-spacing: -0.3px; }
+.tracker-sub   { font-size: 15px; color: var(--t2); margin-bottom: 16px; }
 
 .tracker-phases {
   display: grid;
@@ -509,7 +513,7 @@ header {
   font-weight: 700;
 }
 
-.phase-num { font-size: 22px; font-weight: 700; display: block; margin-bottom: 3px; color: inherit; letter-spacing: -0.5px; }
+.phase-num { font-family: var(--font-display); font-size: 22px; font-weight: 700; display: block; margin-bottom: 3px; color: inherit; letter-spacing: -0.3px; }
 
 .phase-desc {
   font-size: 15px;
@@ -518,7 +522,7 @@ header {
   padding: 14px 16px;
   background: var(--bg3);
   border-radius: var(--r-xs);
-  letter-spacing: -0.24px;
+  letter-spacing: 0;
 }
 
 /* ─── Permit table ────────────────────────────────────────────────────────────── */
@@ -546,7 +550,7 @@ header {
   padding: 12px 14px;
   border-bottom: 0.5px solid var(--sep2);
   color: var(--t2);
-  letter-spacing: -0.24px;
+  letter-spacing: 0;
 }
 .permit-table tr:last-child td { border-bottom: none; }
 .permit-table td:not(:first-child) { text-align: center; font-size: 16px; }
@@ -585,11 +589,12 @@ header {
 }
 
 .home-title {
+  font-family: var(--font-display);
   font-size: 34px;
   font-weight: 700;
   color: var(--t1);
-  letter-spacing: 0.37px;
-  line-height: 1.2;
+  letter-spacing: -0.5px;
+  line-height: 1.15;
   cursor: pointer;
 }
 
@@ -613,7 +618,7 @@ header {
 .reminder-card:active { background: var(--bg3); }
 
 .reminder-icon { font-size: 24px; }
-.reminder-text { font-size: 15px; color: var(--t1); letter-spacing: -0.24px; }
+.reminder-text { font-size: 15px; color: var(--t1); }
 
 .no-reminders {
   font-size: 15px;
@@ -646,7 +651,7 @@ header {
   border: none;
   padding: 4px 0;
   cursor: pointer;
-  letter-spacing: -0.24px;
+  letter-spacing: 0;
   flex-shrink: 0;
 }
 
@@ -654,7 +659,7 @@ header {
   font-size: 17px;
   font-weight: 600;
   color: var(--t1);
-  letter-spacing: -0.41px;
+  letter-spacing: 0;
   flex: 1;
   text-align: center;
   margin-right: 60px;
@@ -714,7 +719,7 @@ header {
 .bar-icon-btn:active { background: var(--bg3); }
 
 .bar-icon { font-size: 24px; line-height: 1; }
-.bar-label { font-size: 11px; color: var(--t2); letter-spacing: -0.08px; }
+.bar-label { font-size: 11px; color: var(--t2); }
 .bar-hint { font-size: 13px; color: var(--t3); }
 
 .bar-expand-btn {
@@ -829,7 +834,6 @@ header {
   padding: 16px;
   font-size: 17px;
   color: var(--t1);
-  font-family: -apple-system, sans-serif;
   outline: none;
 }
 .gym-session-name-input::placeholder { color: var(--t3); }
@@ -844,7 +848,6 @@ header {
   border: none;
   border-radius: var(--r);
   cursor: pointer;
-  font-family: -apple-system, sans-serif;
 }
 
 .gym-btn-danger {
@@ -857,7 +860,6 @@ header {
   border: none;
   border-radius: var(--r);
   cursor: pointer;
-  font-family: -apple-system, sans-serif;
 }
 
 .gym-btn-secondary {
@@ -870,7 +872,6 @@ header {
   border: none;
   border-radius: var(--r);
   cursor: pointer;
-  font-family: -apple-system, sans-serif;
 }
 
 .gym-active-header {
@@ -883,8 +884,8 @@ header {
   margin: 16px 20px 0;
 }
 
-.gym-session-title { font-size: 20px; font-weight: 700; color: var(--t1); }
-.gym-timer { font-size: 28px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.gym-session-title { font-family: var(--font-display); font-size: 20px; font-weight: 700; letter-spacing: -0.2px; color: var(--t1); }
+.gym-timer { font-family: var(--font-display); font-size: 28px; font-weight: 700; letter-spacing: -0.4px; color: var(--accent); font-variant-numeric: tabular-nums; }
 
 .gym-exercises-list { padding: 0 20px; }
 
@@ -924,7 +925,6 @@ header {
   padding: 10px 12px;
   font-size: 15px;
   color: var(--t1);
-  font-family: -apple-system, sans-serif;
   outline: none;
   min-width: 0;
 }
@@ -943,7 +943,6 @@ header {
   color: var(--t2);
   font-size: 13px;
   cursor: pointer;
-  font-family: -apple-system, sans-serif;
 }
 .gym-unit-toggle button.active { background: var(--accent); color: #000; font-weight: 700; }
 
@@ -967,7 +966,6 @@ header {
   padding: 14px 16px;
   font-size: 17px;
   color: var(--t1);
-  font-family: -apple-system, sans-serif;
   outline: none;
   margin-bottom: 4px;
 }
@@ -1002,7 +1000,6 @@ header {
   font-size: 14px;
   color: var(--t2);
   cursor: pointer;
-  font-family: -apple-system, sans-serif;
   text-align: center;
 }
 .gym-muscle-btn.selected { border-color: var(--accent); color: var(--accent); background: rgba(50,215,75,0.1); }
@@ -1024,12 +1021,12 @@ header {
   flex-direction: column;
   gap: 12px;
 }
-.gym-modal-title { font-size: 20px; font-weight: 700; color: var(--t1); margin-bottom: 4px; }
+.gym-modal-title { font-family: var(--font-display); font-size: 20px; font-weight: 700; letter-spacing: -0.2px; color: var(--t1); margin-bottom: 4px; }
 
 .gym-summary-screen {
   padding: 24px 20px;
 }
-.gym-summary-title { font-size: 28px; font-weight: 700; color: var(--t1); margin-bottom: 4px; }
+.gym-summary-title { font-family: var(--font-display); font-size: 28px; font-weight: 700; letter-spacing: -0.4px; color: var(--t1); margin-bottom: 4px; }
 .gym-summary-duration { font-size: 17px; color: var(--accent); font-weight: 600; margin-bottom: 20px; }
 .gym-summary-exercise { margin-bottom: 16px; }
 .gym-summary-exercise-name { font-size: 17px; font-weight: 600; color: var(--t1); margin-bottom: 6px; }
@@ -1063,7 +1060,6 @@ header {
   font-weight: 500;
   color: var(--t2);
   cursor: pointer;
-  font-family: -apple-system, sans-serif;
 }
 .gym-sub-tab.active {
   background: var(--accent);
@@ -1079,8 +1075,10 @@ header {
   padding: 16px 20px 8px;
 }
 .gym-cal-title {
+  font-family: var(--font-display);
   font-size: 18px;
   font-weight: 700;
+  letter-spacing: -0.1px;
   color: var(--t1);
 }
 .gym-cal-nav {
@@ -1091,7 +1089,6 @@ header {
   line-height: 1;
   cursor: pointer;
   padding: 4px 8px;
-  font-family: -apple-system, sans-serif;
 }
 
 .gym-cal-grid {
@@ -1171,7 +1168,6 @@ header {
   font-weight: 500;
   color: var(--t2);
   cursor: pointer;
-  font-family: -apple-system, sans-serif;
 }
 .gym-filter-pill.active {
   background: var(--accent);
@@ -1208,11 +1204,12 @@ header {
   padding: 0;
   margin-bottom: 8px;
   display: block;
-  font-family: -apple-system, sans-serif;
 }
 .gym-dir-detail-title {
+  font-family: var(--font-display);
   font-size: 22px;
   font-weight: 700;
+  letter-spacing: -0.25px;
   color: var(--t1);
 }
 .gym-dir-detail-muscle {
@@ -1241,7 +1238,6 @@ header {
   font-weight: 500;
   color: var(--t2);
   cursor: pointer;
-  font-family: -apple-system, sans-serif;
 }
 .gym-pill.active {
   background: var(--accent);
@@ -1286,6 +1282,7 @@ header {
   margin-bottom: 3px;
 }
 .gym-pr-value {
+  font-family: var(--font-display);
   font-size: 17px;
   font-weight: 700;
   color: var(--accent);
