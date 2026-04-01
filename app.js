@@ -451,5 +451,14 @@ document.addEventListener('DOMContentLoaded', function() {
     render: function(container) { renderGymModule(container); }
   });
 
+  registerModule({
+    id: 'oral',
+    label: 'Oral',
+    icon: '🦷',
+    color: '#30d158',
+    type: 'json',
+    reminder: function() { return 'Rutina oral pendiente'; }
+  });
+
   renderHomeScreen();
 });
