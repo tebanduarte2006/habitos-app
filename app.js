@@ -88,6 +88,10 @@ function loadModule(mod, container) {
         container.innerHTML = '<div class="load-error">Error cargando módulo.</div>';
         console.error(err);
       });
+  } else if (mod.type === 'custom') {
+    switch (mod.id) {
+      case 'kegel': renderKegelModule(container); break;
+    }
   } else if (typeof mod.render === 'function') {
     mod.render(container);
   }
@@ -458,6 +462,15 @@ document.addEventListener('DOMContentLoaded', function() {
     color: '#30d158',
     type: 'json',
     reminder: function() { return 'Rutina oral pendiente'; }
+  });
+
+  registerModule({
+    id: 'kegel',
+    label: 'Kegel',
+    icon: '💪',
+    color: '#ff9f0a',
+    type: 'custom',
+    reminder: function() { return 'Completa tu rutina de Kegel hoy.'; }
   });
 
   renderHomeScreen();
