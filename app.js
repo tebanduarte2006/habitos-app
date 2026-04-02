@@ -44,12 +44,12 @@ function navigateTo(moduleId) {
   moduleEl.innerHTML = '';
 
   // Header del módulo con botón de regreso
-  var header = createElement('div', { class: 'module-header' }, [
-    createElement('button', { class: 'back-btn', id: 'back-btn' }, ['Hábitos']),
-    createElement('h1', { class: 'module-title' }, [mod.icon + ' ' + mod.label])
+  var header = createElement('div', { class: 'module-header', id: 'module-header' }, [
+    createElement('button', { class: 'back-btn', id: 'habitos-back-btn' }, ['Hábitos']),
+    createElement('h1', { class: 'module-title', id: 'module-title' }, [mod.icon + ' ' + mod.label])
   ]);
-  document.getElementById('back-btn') && null;
   moduleEl.appendChild(header);
+  moduleEl.appendChild(createElement('div', { id: 'header-divider' }));
 
   // Contenedor del contenido del módulo
   var content = createElement('div', { class: 'module-content', id: 'module-content' });
@@ -62,11 +62,12 @@ function navigateTo(moduleId) {
   setupSwipeBack();
 
   // Bind del botón back (debe ser después de appendChild)
-  document.getElementById('back-btn').addEventListener('click', navigateHome);
+  document.getElementById('habitos-back-btn').addEventListener('click', navigateHome);
 }
 
 function navigateHome() {
   _currentModule = null;
+  resetSwipeTransform();
   document.getElementById('home-screen').classList.remove('hidden');
   document.getElementById('module-view').classList.add('hidden');
   document.getElementById('module-view').innerHTML = '';
@@ -149,7 +150,7 @@ function renderHomeScreen() {
   home.appendChild(header);
 
   // Reminders
-  var remindersEl = createElement('div', { class: 'home-reminders', id: 'home-reminders' });
+  var remindersEl = createElement('div', { id: 'home-reminders' });
   renderReminders(remindersEl);
   home.appendChild(remindersEl);
 
@@ -285,17 +286,48 @@ function togglePin(modId) {
 
 // ─── Swipe back ────────────────────────────────────────────────────────────────
 function setupSwipeBack() {
-  var startX = 0;
-  var el = document.getElementById('module-view');
-  el.addEventListener('touchstart', function(e) {
+  var el      = document.getElementById('module-view');
+  var startX  = 0;
+  var startY  = 0;
+  var deltaX  = 0;
+  var active  = false;
+
+  function onTouchStart(e) {
     startX = e.touches[0].clientX;
-  }, { passive: true });
-  el.addEventListener('touchend', function(e) {
-    var endX = e.changedTouches[0].clientX;
-    if (startX < 30 && endX - startX > 80) {
-      navigateHome();
+    startY = e.touches[0].clientY;
+    deltaX = 0;
+    active = startX < 30;
+  }
+
+  function onTouchMove(e) {
+    if (!active) return;
+    deltaX = e.touches[0].clientX - startX;
+    var deltaY = Math.abs(e.touches[0].clientY - startY);
+    if (deltaX > 0 && deltaY < 80) {
+      el.style.transition = 'none';
+      el.style.transform  = 'translateX(' + deltaX + 'px)';
     }
-  }, { passive: true });
+  }
+
+  function onTouchEnd() {
+    if (!active) return;
+    active = false;
+    if (deltaX > 100) {
+      navigateHome();
+    } else {
+      el.style.transition = 'transform 0.3s ease';
+      el.style.transform  = 'translateX(0)';
+    }
+  }
+
+  el.addEventListener('touchstart', onTouchStart, { passive: true });
+  el.addEventListener('touchmove',  onTouchMove,  { passive: true });
+  el.addEventListener('touchend',   onTouchEnd,   { passive: true });
+}
+
+function resetSwipeTransform() {
+  var el = document.getElementById('module-view');
+  if (el) { el.style.transition = ''; el.style.transform = ''; }
 }
 
 // ─── Toast ─────────────────────────────────────────────────────────────────────
@@ -467,7 +499,7 @@ document.addEventListener('DOMContentLoaded', function() {
   registerModule({
     id: 'kegel',
     label: 'Kegel',
-    icon: '💪',
+    icon: '🤞',
     color: '#ff9f0a',
     type: 'custom',
     reminder: function() { return 'Completa tu rutina de Kegel hoy.'; }
