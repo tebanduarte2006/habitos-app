@@ -53,6 +53,8 @@
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 var KEGEL_DEFAULTS = {
   respiraciones:      5,
+  seg_inhala:         4,
+  seg_exhala:         6,
   f2_seg_contraccion: 8,
   f2_seg_relajacion:  8,
   f2_reps:            10,
@@ -72,16 +74,18 @@ function kegelGetConfig() {
 }
 
 // ─── Estado global del módulo ─────────────────────────────────────────────────
-var _kegelTimer        = null;
-var _kegelBreathTimer  = null;
-var _kegelPaused       = false;
-var _kegelSessionPanel = null;
-var _kegelCurrentPhase = 1;
-var _kegelAudioCtx     = null;
+var _kegelTimer          = null;
+var _kegelBreathTimer    = null;   // stores setTimeout ID for breath cycle
+var _kegelBreathCycleId  = 0;     // increments on cancel to invalidate pending callbacks
+var _kegelPaused         = false;
+var _kegelSessionPanel   = null;
+var _kegelCurrentPhase   = 1;
+var _kegelAudioCtx       = null;
 
 function kegelClearTimers() {
-  if (_kegelTimer)       { clearInterval(_kegelTimer);       _kegelTimer = null; }
-  if (_kegelBreathTimer) { clearInterval(_kegelBreathTimer); _kegelBreathTimer = null; }
+  if (_kegelTimer)       { clearInterval(_kegelTimer);      _kegelTimer = null; }
+  if (_kegelBreathTimer) { clearTimeout(_kegelBreathTimer); _kegelBreathTimer = null; }
+  _kegelBreathCycleId++;   // invalidates all pending breath cycle callbacks
   _kegelPaused = false;
 }
 
@@ -182,13 +186,13 @@ function kegelRenderPhase(panel, phase) {
   }
 }
 
-// ─── FASES 1 y 4 — Respiración con ring SVG + beep automático ────────────────
+// ─── FASES 1 y 4 — Respiración con ring SVG + double-beep automático ──────────
 function kegelRenderBreathPhase(panel, cfg, phaseNum) {
-  var total       = cfg.respiraciones;
-  var count       = 0;
-  var isLast      = phaseNum === 4;
-  var CIRC        = 439.82;              // 2 * π * 70
-  var INTERVAL_MS = 10000;              // 10s por respiración (4s inhala + 6s exhala)
+  var total     = cfg.respiraciones;
+  var inhalaSeg = cfg.seg_inhala;
+  var exhalaSeg = cfg.seg_exhala;
+  var isLast    = phaseNum === 4;
+  var CIRC      = 439.82;   // 2 * π * 70
 
   panel.appendChild(createElement('h3', { class: 'kegel-phase-title' }, [
     isLast ? 'Fase 4 — Relajación final' : 'Fase 1 — Relajación inicial'
@@ -196,32 +200,27 @@ function kegelRenderBreathPhase(panel, cfg, phaseNum) {
   panel.appendChild(createElement('p', { class: 'kegel-instruction' }, [
     isLast
       ? 'Igual que la Fase 1. Suelta el suelo pélvico con cada exhalación.'
-      : 'Inhala 4 seg por la nariz, exhala 6 seg por la boca. Con cada exhalación, suelta activamente el suelo pélvico.'
+      : 'Inhala ' + inhalaSeg + ' seg por la nariz, exhala ' + exhalaSeg + ' seg por la boca. Con cada exhalación, suelta activamente el suelo pélvico.'
   ]));
 
-  // ── SVG ring ──
+  // ── SVG ring (FIX 2: stroke vía style, no atributo) ──
   var svgNS = 'http://www.w3.org/2000/svg';
   var svg   = document.createElementNS(svgNS, 'svg');
-  svg.setAttribute('width', '180');
-  svg.setAttribute('height', '180');
+  svg.setAttribute('width', '180'); svg.setAttribute('height', '180');
   svg.setAttribute('viewBox', '0 0 180 180');
   svg.style.cssText = 'display:block;margin:24px auto 8px;';
 
   var bgC = document.createElementNS(svgNS, 'circle');
   bgC.setAttribute('cx', '90'); bgC.setAttribute('cy', '90'); bgC.setAttribute('r', '70');
-  bgC.setAttribute('stroke', 'rgba(255,255,255,0.08)');
-  bgC.setAttribute('stroke-width', '10'); bgC.setAttribute('fill', 'none');
+  bgC.style.cssText = 'stroke:rgba(255,255,255,0.08);fill:none;stroke-width:10;';
   svg.appendChild(bgC);
 
   var progC = document.createElementNS(svgNS, 'circle');
   progC.setAttribute('cx', '90'); progC.setAttribute('cy', '90'); progC.setAttribute('r', '70');
-  progC.setAttribute('stroke', '#FF9F0A');
-  progC.setAttribute('stroke-width', '10'); progC.setAttribute('fill', 'none');
+  progC.style.cssText = 'stroke:var(--accent);fill:none;stroke-width:10;stroke-linecap:round;transition:stroke-dashoffset 0.5s ease;';
   progC.setAttribute('stroke-dasharray',  CIRC.toFixed(2));
   progC.setAttribute('stroke-dashoffset', CIRC.toFixed(2));
   progC.setAttribute('transform', 'rotate(-90 90 90)');
-  progC.setAttribute('stroke-linecap', 'round');
-  progC.style.transition = 'stroke-dashoffset 0.5s ease';
   svg.appendChild(progC);
 
   var tNum = document.createElementNS(svgNS, 'text');
@@ -249,30 +248,46 @@ function kegelRenderBreathPhase(panel, cfg, phaseNum) {
   ]);
   panel.appendChild(nextBtn);
 
-  function updateRing() {
-    tNum.textContent = count;
-    progC.setAttribute('stroke-dashoffset', (CIRC * (1 - count / total)).toFixed(2));
+  function updateRing(done) {
+    tNum.textContent = done;
+    progC.setAttribute('stroke-dashoffset', (CIRC * (1 - done / total)).toFixed(2));
   }
 
-  function advanceBreath() {
-    if (count < total) count++;
-    kegelBeep();
-    updateRing();
-    if (count >= total) {
-      clearInterval(_kegelBreathTimer);
-      _kegelBreathTimer = null;
-      setTimeout(function() {
-        kegelClearTimers();
-        if (isLast) kegelRenderComplete(_kegelSessionPanel);
-        else        kegelRenderPhase(_kegelSessionPanel, phaseNum + 1);
-      }, 500);
-    }
+  // FIX 3: double-beep con chained setTimeout
+  // Cada respiración: beep (inhala) → espera inhalaSeg → beep (exhala) → espera exhalaSeg → cuenta + siguiente
+  var myCycleId = _kegelBreathCycleId;
+
+  function runBreathCycle(done) {
+    if (_kegelBreathCycleId !== myCycleId || done >= total) return;
+
+    kegelBeep(); // beep inhala
+
+    _kegelBreathTimer = setTimeout(function() {
+      if (_kegelBreathCycleId !== myCycleId) return;
+      kegelBeep(); // beep exhala
+
+      _kegelBreathTimer = setTimeout(function() {
+        if (_kegelBreathCycleId !== myCycleId) return;
+        done++;
+        updateRing(done);
+        if (done >= total) {
+          _kegelBreathTimer = setTimeout(function() {
+            if (_kegelBreathCycleId !== myCycleId) return;
+            kegelClearTimers();
+            if (isLast) kegelRenderComplete(_kegelSessionPanel);
+            else        kegelRenderPhase(_kegelSessionPanel, phaseNum + 1);
+          }, 500);
+        } else {
+          runBreathCycle(done);
+        }
+      }, exhalaSeg * 1000);
+    }, inhalaSeg * 1000);
   }
 
-  _kegelBreathTimer = setInterval(advanceBreath, INTERVAL_MS);
+  runBreathCycle(0);
 
   nextBtn.addEventListener('click', function() {
-    kegelEnsureAudioCtx();          // crea AudioCtx en user gesture para fases siguientes
+    kegelEnsureAudioCtx();
     kegelClearTimers();
     if (isLast) kegelRenderComplete(_kegelSessionPanel);
     else        kegelRenderPhase(_kegelSessionPanel, phaseNum + 1);
@@ -315,52 +330,145 @@ function kegelRenderRapidPhase(panel, cfg) {
   });
 }
 
-// ─── Timer phase engine (fases 2 y 3) ────────────────────────────────────────
+// ─── Timer phase engine (fases 2 y 3) — con rings SVG (FIX 4) ────────────────
 function kegelRunTimerPhase(panel, opts) {
-  var st = {
-    series:   1,
-    rep:      1,
-    phase:    'contrae',
-    timeLeft: opts.segContraccion,
-    done:     false
-  };
+  var st = { series: 1, rep: 1, phase: 'contrae', timeLeft: opts.segContraccion, done: false };
 
-  var stateEl  = createElement('div', { class: 'kegel-state-display kegel-state-contrae' }, [opts.labelContrae]);
-  var timerEl  = createElement('div', { class: 'kegel-timer-display' }, [opts.segContraccion + 's']);
-  var serieEl  = createElement('div', { class: 'kegel-counter-small' }, ['Serie 1 / ' + opts.series]);
-  var repEl    = createElement('div', { class: 'kegel-counter-small' }, ['Rep 1 / ' + opts.reps]);
-  var pauseBtn = createElement('button', { class: 'kegel-pause-btn' }, ['Pausar']);
-  var nextBtn  = createElement('button', { class: 'kegel-next-btn disabled', id: 'kegel-next-btn' }, ['Siguiente fase →']);
+  var CIRC1 = 389.56;  // 2*π*62, ring grande r=62
+  var CIRC2 = 188.50;  // 2*π*30, ring pequeño r=30
+  var svgNS = 'http://www.w3.org/2000/svg';
 
-  var countersRow = createElement('div', { class: 'kegel-counters-row' });
-  countersRow.appendChild(serieEl);
-  countersRow.appendChild(repEl);
+  // ── Ring 1: temporizador (160×160) ──
+  var svg1 = document.createElementNS(svgNS, 'svg');
+  svg1.setAttribute('width', '160'); svg1.setAttribute('height', '160');
+  svg1.setAttribute('viewBox', '0 0 160 160');
+  svg1.style.cssText = 'display:block;margin:0 auto;';
 
-  panel.appendChild(stateEl);
-  panel.appendChild(timerEl);
-  panel.appendChild(countersRow);
+  var bg1 = document.createElementNS(svgNS, 'circle');
+  bg1.setAttribute('cx', '80'); bg1.setAttribute('cy', '80'); bg1.setAttribute('r', '62');
+  bg1.style.cssText = 'stroke:rgba(255,255,255,0.08);fill:none;stroke-width:10;';
+  svg1.appendChild(bg1);
+
+  var prog1 = document.createElementNS(svgNS, 'circle');
+  prog1.setAttribute('cx', '80'); prog1.setAttribute('cy', '80'); prog1.setAttribute('r', '62');
+  prog1.style.cssText = 'stroke:var(--accent);fill:none;stroke-width:10;stroke-linecap:round;transition:stroke-dashoffset 0.25s linear,stroke 0.3s;';
+  prog1.setAttribute('stroke-dasharray',  CIRC1.toFixed(2));
+  prog1.setAttribute('stroke-dashoffset', '0');
+  prog1.setAttribute('transform', 'rotate(-90 80 80)');
+  svg1.appendChild(prog1);
+
+  var t1Num = document.createElementNS(svgNS, 'text');
+  t1Num.setAttribute('x', '80'); t1Num.setAttribute('y', '72');
+  t1Num.setAttribute('text-anchor', 'middle');
+  t1Num.setAttribute('font-family', "-apple-system,'SF Pro Display',system-ui,sans-serif");
+  t1Num.setAttribute('font-size', '40'); t1Num.setAttribute('font-weight', '700');
+  t1Num.setAttribute('fill', 'white');
+  t1Num.textContent = opts.segContraccion;
+  svg1.appendChild(t1Num);
+
+  var t1Sub = document.createElementNS(svgNS, 'text');
+  t1Sub.setAttribute('x', '80'); t1Sub.setAttribute('y', '97');
+  t1Sub.setAttribute('text-anchor', 'middle');
+  t1Sub.setAttribute('font-family', "-apple-system,'SF Pro Display',system-ui,sans-serif");
+  t1Sub.setAttribute('font-size', '13'); t1Sub.setAttribute('font-weight', '700');
+  t1Sub.setAttribute('fill', '#FF9F0A');
+  t1Sub.textContent = opts.labelContrae;
+  svg1.appendChild(t1Sub);
+
+  // ── Ring 2: progreso de reps (80×80) ──
+  var svg2 = document.createElementNS(svgNS, 'svg');
+  svg2.setAttribute('width', '80'); svg2.setAttribute('height', '80');
+  svg2.setAttribute('viewBox', '0 0 80 80');
+  svg2.style.cssText = 'display:block;margin:16px auto 0;';
+
+  var bg2 = document.createElementNS(svgNS, 'circle');
+  bg2.setAttribute('cx', '40'); bg2.setAttribute('cy', '40'); bg2.setAttribute('r', '30');
+  bg2.style.cssText = 'stroke:rgba(255,255,255,0.08);fill:none;stroke-width:7;';
+  svg2.appendChild(bg2);
+
+  var prog2 = document.createElementNS(svgNS, 'circle');
+  prog2.setAttribute('cx', '40'); prog2.setAttribute('cy', '40'); prog2.setAttribute('r', '30');
+  prog2.style.cssText = 'stroke:var(--accent);fill:none;stroke-width:7;stroke-linecap:round;transition:stroke-dashoffset 0.3s ease;';
+  prog2.setAttribute('stroke-dasharray',  CIRC2.toFixed(2));
+  prog2.setAttribute('stroke-dashoffset', CIRC2.toFixed(2));
+  prog2.setAttribute('transform', 'rotate(-90 40 40)');
+  svg2.appendChild(prog2);
+
+  var t2Num = document.createElementNS(svgNS, 'text');
+  t2Num.setAttribute('x', '40'); t2Num.setAttribute('y', '37');
+  t2Num.setAttribute('text-anchor', 'middle');
+  t2Num.setAttribute('font-family', "-apple-system,'SF Pro Display',system-ui,sans-serif");
+  t2Num.setAttribute('font-size', '20'); t2Num.setAttribute('font-weight', '700');
+  t2Num.setAttribute('fill', 'white');
+  t2Num.textContent = '0';
+  svg2.appendChild(t2Num);
+
+  var t2Sub = document.createElementNS(svgNS, 'text');
+  t2Sub.setAttribute('x', '40'); t2Sub.setAttribute('y', '51');
+  t2Sub.setAttribute('text-anchor', 'middle');
+  t2Sub.setAttribute('font-family', "-apple-system,'SF Pro Display',system-ui,sans-serif");
+  t2Sub.setAttribute('font-size', '10'); t2Sub.setAttribute('font-weight', '500');
+  t2Sub.setAttribute('fill', 'rgba(255,255,255,0.4)');
+  t2Sub.textContent = '/ ' + opts.reps + ' reps';
+  svg2.appendChild(t2Sub);
+
+  // ── Labels y controles ──
+  var serieLabel = createElement('div', { style: 'text-align:center;font-size:13px;color:rgba(255,255,255,0.4);font-family:-apple-system,sans-serif;margin-top:12px;' }, ['Serie 1 de ' + opts.series]);
+  var pauseBtn   = createElement('button', { class: 'kegel-pause-btn' }, ['Pausar']);
+  var nextBtn    = createElement('button', { class: 'kegel-next-btn disabled', id: 'kegel-next-btn' }, ['Siguiente fase →']);
+
+  var ringsWrap = createElement('div', { style: 'padding:24px 0 8px;' });
+  ringsWrap.appendChild(svg1);
+  ringsWrap.appendChild(svg2);
+
+  panel.appendChild(ringsWrap);
+  panel.appendChild(serieLabel);
   panel.appendChild(pauseBtn);
   panel.appendChild(nextBtn);
 
-  function updateDisplay() {
-    var label = st.phase === 'contrae'  ? opts.labelContrae
-              : st.phase === 'relaja'   ? opts.labelRelaja
-              : 'DESCANSA';
-    stateEl.textContent = label;
-    stateEl.className   = 'kegel-state-display kegel-state-' + st.phase;
-    timerEl.textContent = st.timeLeft + 's';
-    serieEl.textContent = 'Serie ' + st.series + ' / ' + opts.series;
-    repEl.textContent   = 'Rep '   + st.rep    + ' / ' + opts.reps;
+  function getTotalForPhase() {
+    if (st.phase === 'contrae')  return opts.segContraccion;
+    if (st.phase === 'relaja')   return opts.segRelajacion;
+    return opts.descanso;
+  }
+
+  function updateRings() {
+    var total = getTotalForPhase();
+    var offset1 = CIRC1 * (1 - st.timeLeft / total);
+    prog1.setAttribute('stroke-dashoffset', offset1.toFixed(2));
+    t1Num.textContent = st.timeLeft;
+
+    if (st.phase === 'contrae') {
+      prog1.style.stroke = 'var(--accent)';
+      t1Sub.setAttribute('fill', '#FF9F0A');
+      t1Sub.textContent  = opts.labelContrae;
+    } else if (st.phase === 'relaja') {
+      prog1.style.stroke = 'rgba(255,255,255,0.2)';
+      t1Sub.setAttribute('fill', 'rgba(255,255,255,0.5)');
+      t1Sub.textContent  = opts.labelRelaja;
+    } else {
+      prog1.style.stroke = 'rgba(255,255,255,0.1)';
+      t1Sub.setAttribute('fill', 'rgba(255,255,255,0.3)');
+      t1Sub.textContent  = 'DESCANSA';
+    }
+
+    var repsDone = st.rep - 1;
+    prog2.setAttribute('stroke-dashoffset', (CIRC2 * (1 - repsDone / opts.reps)).toFixed(2));
+    t2Num.textContent = repsDone;
+    serieLabel.textContent = 'Serie ' + st.series + ' de ' + opts.series;
   }
 
   function finish() {
-    st.done             = true;
-    clearInterval(_kegelTimer);
-    _kegelTimer         = null;
-    stateEl.textContent = '✓ Completado';
-    stateEl.className   = 'kegel-state-display kegel-state-done';
-    timerEl.textContent = '';
-    pauseBtn.disabled   = true;
+    st.done = true;
+    clearInterval(_kegelTimer); _kegelTimer = null;
+    prog1.style.stroke = 'var(--accent)';
+    prog1.setAttribute('stroke-dashoffset', '0');
+    t1Num.textContent  = '✓';
+    t1Sub.setAttribute('fill', '#FF9F0A');
+    t1Sub.textContent  = 'Completado';
+    prog2.setAttribute('stroke-dashoffset', '0');
+    t2Num.textContent  = opts.reps;
+    pauseBtn.disabled  = true;
     nextBtn.classList.remove('disabled');
     nextBtn.addEventListener('click', function() {
       kegelEnsureAudioCtx();
@@ -371,34 +479,25 @@ function kegelRunTimerPhase(panel, opts) {
   function tick() {
     if (_kegelPaused || st.done) return;
     st.timeLeft--;
-    if (st.timeLeft > 0) { updateDisplay(); return; }
+    if (st.timeLeft > 0) { updateRings(); return; }
 
-    // Transition
     if (st.phase === 'contrae') {
       st.phase    = 'relaja';
       st.timeLeft = opts.segRelajacion;
     } else if (st.phase === 'relaja') {
       if (st.rep >= opts.reps) {
-        if (st.series >= opts.series) {
-          finish(); return;
-        } else {
-          st.series++;
-          st.rep      = 1;
-          st.phase    = 'descanso';
-          st.timeLeft = opts.descanso;
-        }
+        if (st.series >= opts.series) { finish(); return; }
+        st.series++; st.rep = 1; st.phase = 'descanso'; st.timeLeft = opts.descanso;
       } else {
-        st.rep++;
-        st.phase    = 'contrae';
-        st.timeLeft = opts.segContraccion;
+        st.rep++; st.phase = 'contrae'; st.timeLeft = opts.segContraccion;
       }
     } else if (st.phase === 'descanso') {
-      st.phase    = 'contrae';
-      st.timeLeft = opts.segContraccion;
+      st.phase = 'contrae'; st.timeLeft = opts.segContraccion;
     }
-    updateDisplay();
+    updateRings();
   }
 
+  updateRings();
   _kegelTimer = setInterval(tick, 1000);
 
   pauseBtn.addEventListener('click', function() {
@@ -448,7 +547,9 @@ function kegelRenderConfig(panel) {
   panel.appendChild(createElement('h3', { class: 'kegel-config-title' }, ['Configuración']));
 
   group('Fases 1 y 4 — Respiración', [
-    { key: 'respiraciones',      label: 'Respiraciones' }
+    { key: 'respiraciones', label: 'Respiraciones'        },
+    { key: 'seg_inhala',    label: 'Segundos inhala'      },
+    { key: 'seg_exhala',    label: 'Segundos exhala'      }
   ]);
 
   group('Fase 2 — Contracciones sostenidas', [

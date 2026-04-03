@@ -190,6 +190,46 @@ function showStartScreen(panel) {
   screen.appendChild(nameInput);
   screen.appendChild(startBtn);
   panel.appendChild(screen);
+
+  // ── Última sesión ──
+  var lastSection = createElement('div', { style: 'padding: 0 20px 80px;' });
+  lastSection.appendChild(createElement('div', { class: 'title-section', style: 'padding: 24px 0 10px;' }, ['Última sesión']));
+  panel.appendChild(lastSection);
+
+  Promise.all([dbGetAll('sesiones'), dbGetAll('sets')]).then(function(results) {
+    var sesiones = results[0];
+    var allSets  = results[1];
+
+    var finalizadas = sesiones.filter(function(s) { return s.finalizada; });
+    finalizadas.sort(function(a, b) { return b.timestamp_inicio - a.timestamp_inicio; });
+    var ultima = finalizadas[0];
+
+    if (!ultima) {
+      lastSection.appendChild(createElement('p', { style: 'font-size:14px;color:var(--text-tertiary);text-align:center;padding-top:32px;font-family:-apple-system,sans-serif;' }, ['Sin sesiones registradas aún']));
+      return;
+    }
+
+    var durMs   = ultima.duracion_ms || 0;
+    var durH    = Math.floor(durMs / 3600000);
+    var durMin  = Math.floor((durMs % 3600000) / 60000);
+    var durStr  = durH > 0 ? durH + 'h ' + durMin + 'min' : durMin + 'min';
+
+    var fechaD  = new Date(ultima.fecha);
+    var dias    = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+    var meses   = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    var fechaStr = dias[fechaD.getDay()] + ' ' + fechaD.getDate() + ' ' + meses[fechaD.getMonth()];
+
+    var setsDeUltima  = allSets.filter(function(s) { return s.sesion_id === ultima.id; });
+    var ejerciciosIds = {};
+    setsDeUltima.forEach(function(s) { ejerciciosIds[s.ejercicio_id] = true; });
+    var numEjercicios = Object.keys(ejerciciosIds).length;
+
+    var card = createElement('div', { class: 'content-card', style: 'padding:16px;' });
+    card.appendChild(createElement('div', { style: 'font-size:15px;font-weight:700;color:var(--text-primary);font-family:-apple-system,sans-serif;margin-bottom:6px;' }, [ultima.nombre]));
+    card.appendChild(createElement('div', { style: 'font-size:13px;color:var(--text-tertiary);font-family:-apple-system,sans-serif;margin-bottom:2px;' }, [fechaStr]));
+    card.appendChild(createElement('div', { style: 'font-size:13px;color:var(--text-secondary);font-family:-apple-system,sans-serif;' }, [durStr + (numEjercicios > 0 ? ' · ' + numEjercicios + ' ejercicio' + (numEjercicios !== 1 ? 's' : '') : '')]));
+    lastSection.appendChild(card);
+  });
 }
 
 // ─── Pantalla: sesión activa ───────────────────────────────────────────────────

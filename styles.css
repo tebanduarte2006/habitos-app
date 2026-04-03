@@ -183,6 +183,7 @@ header {
   margin: 0 auto;
   display: flex;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   padding: 0 16px;
 }
@@ -412,10 +413,12 @@ header {
 .alert-danger .alert-label { color: var(--red); }
 .alert-warn   { background: rgba(255,214,10,0.12); color: #ffe56e; }
 .alert-warn   .alert-label { color: var(--yellow); }
-.alert-ok     { background: var(--accent-dim);  color: rgba(255,200,100,0.9); }
-.alert-ok     .alert-label { color: var(--accent); }
-.alert-info   { background: rgba(10,132,255,0.12); color: #82b4ff; }
-.alert-info   .alert-label { color: var(--blue); }
+.alert-ok      { background: var(--accent-dim);  color: rgba(255,200,100,0.9); }
+.alert-ok      .alert-label { color: var(--accent); }
+.alert-info    { background: rgba(10,132,255,0.10); border: 0.5px solid rgba(10,132,255,0.25); color: rgba(255,255,255,0.85); }
+.alert-info    .alert-label { color: #0A84FF; }
+.alert-warning { background: var(--accent-dim); border: 0.5px solid var(--accent-border); color: rgba(255,255,255,0.85); }
+.alert-warning .alert-label { color: var(--accent); }
 
 /* ─── Sub-tabs (escenarios noche) ────────────────────────────────────────────── */
 .sub-tabs {
