@@ -89,27 +89,30 @@ function kegelClearTimers() {
   _kegelPaused = false;
 }
 
-// ─── Web Audio (beep suave) ───────────────────────────────────────────────────
-function kegelEnsureAudioCtx() {
-  if (_kegelAudioCtx) return;
-  try { _kegelAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
-  catch(e) { /* unsupported */ }
+// ─── Web Audio — inicializar SOLO desde user gesture directo ─────────────────
+function kegelInitAudio() {
+  if (!_kegelAudioCtx) {
+    try { _kegelAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch(e) { return; }
+  }
+  if (_kegelAudioCtx.state === 'suspended') {
+    _kegelAudioCtx.resume();
+  }
 }
 
 function kegelBeep() {
-  if (!_kegelAudioCtx) return;
+  if (!_kegelAudioCtx || _kegelAudioCtx.state === 'suspended') return;
   try {
     var osc  = _kegelAudioCtx.createOscillator();
     var gain = _kegelAudioCtx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(440, _kegelAudioCtx.currentTime);
-    gain.gain.setValueAtTime(0.15, _kegelAudioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, _kegelAudioCtx.currentTime + 0.15);
     osc.connect(gain);
     gain.connect(_kegelAudioCtx.destination);
+    osc.type = 'sine';
+    osc.frequency.value = 440;
+    gain.gain.setValueAtTime(0.15, _kegelAudioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, _kegelAudioCtx.currentTime + 0.15);
     osc.start(_kegelAudioCtx.currentTime);
     osc.stop(_kegelAudioCtx.currentTime + 0.15);
-    osc.onended = function() { osc.disconnect(); gain.disconnect(); };
   } catch(e) { /* ignore */ }
 }
 
@@ -160,13 +163,45 @@ function renderKegelModule(container) {
   kegelRenderSession(panels['sesion']);
 }
 
-// ─── TAB: SESIÓN ──────────────────────────────────────────────────────────────
+// ─── TAB: SESIÓN — pantalla de inicio ────────────────────────────────────────
 function kegelRenderSession(panel) {
   panel.innerHTML = '';
   kegelClearTimers();
-  _kegelCurrentPhase = 1;
   _kegelSessionPanel = panel;
-  kegelRenderPhase(panel, 1);
+
+  var cfg = kegelGetConfig();
+
+  // Duración estimada total
+  var phase1s = cfg.respiraciones * (cfg.seg_inhala + cfg.seg_exhala);
+  var phase2s = cfg.f2_series * cfg.f2_reps * (cfg.f2_seg_contraccion + cfg.f2_seg_relajacion)
+              + Math.max(0, cfg.f2_series - 1) * cfg.f2_descanso;
+  var phase3s = cfg.f3_series * cfg.f3_reps * (cfg.f3_seg_contraccion * 2)
+              + Math.max(0, cfg.f3_series - 1) * cfg.f3_descanso;
+  var totalMin = Math.ceil((phase1s + phase2s + phase3s + phase1s) / 60);
+
+  var screen = createElement('div', {
+    style: 'display:flex;flex-direction:column;justify-content:center;align-items:center;' +
+           'padding:32px;min-height:60vh;text-align:center;'
+  });
+
+  screen.appendChild(createElement('div', { style: 'font-size:64px;margin-bottom:16px;' }, ['🤞']));
+  screen.appendChild(createElement('div', {
+    style: 'font-size:24px;font-weight:700;color:var(--text-primary);' +
+           'font-family:-apple-system,sans-serif;margin-bottom:8px;'
+  }, ['Sesión de Kegel']));
+  screen.appendChild(createElement('div', {
+    style: 'font-size:15px;color:var(--text-tertiary);' +
+           'font-family:-apple-system,sans-serif;margin-bottom:48px;'
+  }, ['4 fases · ~' + totalMin + ' min']));
+
+  var startBtn = createElement('button', { class: 'btn-primary' }, ['Iniciar sesión']);
+  startBtn.addEventListener('click', function() {
+    kegelInitAudio();   // crea y desbloquea AudioContext en user gesture directo
+    kegelBeep();        // beep de confirmación — verifica que el audio está activo
+    kegelRenderPhase(panel, 1);
+  });
+  screen.appendChild(startBtn);
+  panel.appendChild(screen);
 }
 
 function kegelRenderPhase(panel, phase) {
@@ -287,7 +322,6 @@ function kegelRenderBreathPhase(panel, cfg, phaseNum) {
   runBreathCycle(0);
 
   nextBtn.addEventListener('click', function() {
-    kegelEnsureAudioCtx();
     kegelClearTimers();
     if (isLast) kegelRenderComplete(_kegelSessionPanel);
     else        kegelRenderPhase(_kegelSessionPanel, phaseNum + 1);
@@ -471,7 +505,6 @@ function kegelRunTimerPhase(panel, opts) {
     pauseBtn.disabled  = true;
     nextBtn.classList.remove('disabled');
     nextBtn.addEventListener('click', function() {
-      kegelEnsureAudioCtx();
       kegelRenderPhase(_kegelSessionPanel, opts.nextPhase);
     });
   }
