@@ -93,6 +93,10 @@ function loadModule(mod, container) {
     switch (mod.id) {
       case 'kegel': renderKegelModule(container); break;
     }
+  } else if (mod.type === 'interactive') {
+    switch (mod.id) {
+      case 'mental': renderMentalModule(container); break;
+    }
   } else if (typeof mod.render === 'function') {
     mod.render(container);
   }
@@ -503,6 +507,15 @@ document.addEventListener('DOMContentLoaded', function() {
     color: '#ff9f0a',
     type: 'custom',
     reminder: function() { return 'Completa tu rutina de Kegel hoy.'; }
+  });
+
+  registerModule({
+    id: 'mental',
+    label: 'Mental',
+    icon: '🧠',
+    color: '#5e5ce6',
+    type: 'interactive',
+    reminder: function() { return '¿Ya hiciste tu sesión de enfoque hoy?'; }
   });
 
   renderHomeScreen();
