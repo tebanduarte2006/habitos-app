@@ -2,7 +2,7 @@
 // Todos los módulos que necesiten persistencia acumulativa usan esta capa.
 
 const DB_NAME = 'habitos-db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -28,6 +28,21 @@ function openDB() {
       // Preferencias globales
       if (!db.objectStoreNames.contains('preferencias')) {
         db.createObjectStore('preferencias', { keyPath: 'clave' });
+      }
+      // Flow State
+      if (!db.objectStoreNames.contains('flow_sessions')) {
+        const fs = db.createObjectStore('flow_sessions', { keyPath: 'id', autoIncrement: true });
+        fs.createIndex('fecha', 'fecha');
+      }
+      if (!db.objectStoreNames.contains('flow_distracciones')) {
+        const fd = db.createObjectStore('flow_distracciones', { keyPath: 'id', autoIncrement: true });
+        fd.createIndex('sesion_id', 'sesion_id');
+        fd.createIndex('distraccion_nombre', 'distraccion_nombre');
+      }
+      if (!db.objectStoreNames.contains('flow_distraccion_catalogo')) {
+        const fdc = db.createObjectStore('flow_distraccion_catalogo', { keyPath: 'id', autoIncrement: true });
+        fdc.createIndex('nombre', 'nombre', { unique: true });
+        fdc.createIndex('nombre_normalizado', 'nombre_normalizado', { unique: true });
       }
     };
     req.onsuccess = () => resolve(req.result);

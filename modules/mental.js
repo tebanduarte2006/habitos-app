@@ -1221,3 +1221,640 @@ function mentalShowMasaje(container, section, card) {
     view.appendChild(timerCard);
   });
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FASE C — Flow State
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ─── Estilos Flow ─────────────────────────────────────────────────────────────
+(function() {
+  if (document.getElementById('mental-styles-flow')) return;
+  var s = document.createElement('style');
+  s.id = 'mental-styles-flow';
+  s.textContent = [
+    '.mental-prog-dots { display:flex; gap:8px; justify-content:center; margin-bottom:20px; }',
+    '.mental-prog-dot { width:8px; height:8px; border-radius:50%; background:var(--separator-strong); }',
+    '.mental-prog-dot.active { background:#5e5ce6; }',
+    '.mental-prog-dot.done   { background:#30d158; }',
+    '.mental-flow-milestone { position:fixed; bottom:100px; left:50%; transform:translateX(-50%); background:#5e5ce6; color:#fff; border-radius:20px; padding:10px 20px; font-size:14px; font-weight:600; z-index:9999; pointer-events:none; white-space:nowrap; font-family:-apple-system,sans-serif; }',
+    '.mental-clas-header { font-size:13px; color:var(--text-secondary); margin-bottom:14px; line-height:1.5; font-family:-apple-system,sans-serif; }',
+    '.mental-clas-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px; }',
+    '.mental-clas-q { background:rgba(255,255,255,0.04); border-radius:var(--radius-lg); padding:10px; min-height:80px; }',
+    '.mental-clas-q-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; margin-bottom:8px; font-family:-apple-system,sans-serif; }',
+    '.mental-clas-q-items { display:flex; flex-direction:column; gap:4px; }',
+    '.mental-clas-task { display:flex; align-items:flex-start; gap:4px; }',
+    '.mental-clas-task-txt { font-size:12px; color:var(--text-primary); line-height:1.3; flex:1; font-family:-apple-system,sans-serif; word-break:break-word; }',
+    '.mental-clas-task-del { background:none; border:none; color:var(--text-tertiary); font-size:14px; cursor:pointer; padding:0 2px; flex-shrink:0; line-height:1; }',
+    '.mental-clas-add { display:flex; gap:6px; }',
+    '.mental-clas-inp { flex:1; background:var(--bg-card); border:1px solid var(--separator-strong); border-radius:var(--radius-lg); padding:8px 12px; font-size:14px; color:var(--text-primary); font-family:-apple-system,sans-serif; min-width:0; }',
+    '.mental-clas-sel { background:var(--bg-card); border:1px solid var(--separator-strong); border-radius:var(--radius-lg); padding:8px 6px; font-size:11px; color:var(--text-primary); -webkit-appearance:none; flex-shrink:0; }',
+    '.mental-clas-addbtn { background:#5e5ce6; border:none; border-radius:var(--radius-lg); padding:8px 14px; color:#fff; font-size:15px; font-weight:700; cursor:pointer; flex-shrink:0; }',
+    '.mental-dur-row { display:flex; align-items:center; gap:10px; margin-top:8px; }',
+    '.mental-dur-inp { width:64px; background:var(--bg-card); border:1px solid var(--separator-strong); border-radius:var(--radius-lg); padding:8px 0; font-size:22px; font-weight:700; color:var(--text-primary); text-align:center; font-family:-apple-system,sans-serif; flex-shrink:0; }',
+    '.mental-dur-unit { font-size:14px; color:var(--text-secondary); font-family:-apple-system,sans-serif; }',
+    '.mental-flow-start { flex:1; background:#5e5ce6; border:none; border-radius:var(--radius-xl); padding:12px; font-size:15px; font-weight:700; color:#fff; cursor:pointer; font-family:-apple-system,sans-serif; }',
+    '.mental-proto-title { font-size:17px; font-weight:700; color:var(--text-primary); margin-bottom:6px; font-family:-apple-system,sans-serif; }',
+    '.mental-proto-sub { font-size:14px; color:var(--text-secondary); margin-bottom:16px; line-height:1.5; font-family:-apple-system,sans-serif; }',
+    '.mental-chips { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 12px; min-height:4px; }',
+    '.mental-chip { display:inline-flex; align-items:center; gap:4px; background:rgba(94,92,230,.18); border-radius:20px; padding:5px 10px; font-size:13px; color:#a8a6ff; font-family:-apple-system,sans-serif; }',
+    '.mental-chip-x { background:none; border:none; color:#a8a6ff; font-size:15px; cursor:pointer; padding:0; line-height:1; }',
+    '.mental-ac-wrap { position:relative; }',
+    '.mental-ac-inp { width:100%; background:var(--bg-card); border:1px solid var(--separator-strong); border-radius:var(--radius-lg); padding:10px 14px; font-size:14px; color:var(--text-primary); box-sizing:border-box; font-family:-apple-system,sans-serif; }',
+    '.mental-ac-drop { position:absolute; top:calc(100% + 4px); left:0; right:0; background:#1c1c1e; border:1px solid var(--separator-strong); border-radius:var(--radius-lg); z-index:200; overflow:hidden; }',
+    '.mental-ac-opt { padding:10px 14px; font-size:14px; color:var(--text-primary); cursor:pointer; font-family:-apple-system,sans-serif; }',
+    '.mental-ac-opt:hover,.mental-ac-opt:active { background:rgba(255,255,255,.08); }',
+    '.mental-rating-row { display:flex; gap:8px; justify-content:center; margin:10px 0 6px; }',
+    '.mental-rating-btn { width:46px; height:46px; border-radius:50%; border:2px solid var(--separator-strong); background:none; font-size:16px; font-weight:700; color:var(--text-secondary); cursor:pointer; font-family:-apple-system,sans-serif; }',
+    '.mental-rating-btn.sel { border-color:#5e5ce6; background:#5e5ce6; color:#fff; }',
+    '.mental-radio-grp { display:flex; flex-direction:column; gap:10px; margin:10px 0 16px; }',
+    '.mental-radio-row { display:flex; align-items:center; gap:10px; cursor:pointer; -webkit-tap-highlight-color:transparent; }',
+    '.mental-radio-dot { width:20px; height:20px; border-radius:50%; border:2px solid var(--separator-strong); flex-shrink:0; position:relative; }',
+    '.mental-radio-dot.sel { border-color:#5e5ce6; background:#5e5ce6; }',
+    '.mental-radio-dot.sel::after { content:""; position:absolute; width:8px; height:8px; border-radius:50%; background:#fff; top:50%; left:50%; transform:translate(-50%,-50%); }',
+    '.mental-radio-lbl { font-size:14px; color:var(--text-primary); font-family:-apple-system,sans-serif; line-height:1.4; }',
+    '.mental-notes-inp { width:100%; background:var(--bg-card); border:1px solid var(--separator-strong); border-radius:var(--radius-lg); padding:10px 14px; font-size:14px; color:var(--text-primary); resize:vertical; min-height:80px; box-sizing:border-box; font-family:-apple-system,sans-serif; }',
+    '.mental-flow-next { width:100%; background:#5e5ce6; border:none; border-radius:var(--radius-xl); padding:13px; font-size:15px; font-weight:700; color:#fff; cursor:pointer; margin-top:16px; font-family:-apple-system,sans-serif; }',
+    '.mental-flow-save { width:100%; background:#30d158; border:none; border-radius:var(--radius-xl); padding:13px; font-size:15px; font-weight:700; color:#fff; cursor:pointer; margin-top:16px; font-family:-apple-system,sans-serif; }',
+    '.mental-flow-save:disabled { background:var(--separator-strong); color:var(--text-tertiary); cursor:not-allowed; }',
+    '.mental-flow-sec-lbl { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--text-tertiary); margin:14px 0 6px; font-family:-apple-system,sans-serif; }',
+    '.mental-ses-sum { font-size:13px; color:var(--text-secondary); line-height:1.9; margin-bottom:12px; font-family:-apple-system,sans-serif; }',
+    '.mental-clas-inp:focus,.mental-ac-inp:focus,.mental-notes-inp:focus,.mental-dur-inp:focus { outline:none; border-color:#5e5ce6; }'
+  ].join('\n');
+  document.head.appendChild(s);
+}());
+
+var _mentalFlowSessionData = null;
+
+// ─── Override mentalShowCard con rutas de flow ────────────────────────────────
+function mentalShowCard(container, section, card) {
+  if (section.id === 'recuperacion') {
+    switch (card.id) {
+      case 'coherencia': return mentalShowCoherencia(container, section, card);
+      case 'suspiro':    return mentalShowSuspiro(container, section, card);
+      case 'humming':    return mentalShowHumming(container, section, card);
+      case 'inmersion':  return mentalShowInmersion(container, section, card);
+      case 'masaje':     return mentalShowMasaje(container, section, card);
+    }
+  }
+  if (section.id === 'flow') {
+    switch (card.id) {
+      case 'clasificacion':    return mentalShowClasificacion(container, section, card);
+      case 'deuda_dopamina':   return mentalShowDeudaDopamina(container, section, card);
+      case 'sesion_enfoque':   return mentalShowSesionEnfoque(container, section, card);
+      case 'protocolo_salida': return mentalShowProtocoloSalida(container, section, card);
+    }
+  }
+  container.innerHTML = '';
+  mentalSetHeader(card.label, function() { mentalShowSection(container, section); });
+  var wrap = document.createElement('div'); wrap.className = 'mental-placeholder';
+  var iconEl  = document.createElement('div'); iconEl.className  = 'mental-placeholder-icon';  iconEl.textContent  = card.icon;
+  var titleEl = document.createElement('div'); titleEl.className = 'mental-placeholder-title'; titleEl.textContent = 'Próximamente';
+  var subEl   = document.createElement('div'); subEl.className   = 'mental-placeholder-sub';   subEl.textContent   = card.label;
+  wrap.appendChild(iconEl); wrap.appendChild(titleEl); wrap.appendChild(subEl);
+  container.appendChild(wrap);
+}
+
+// ─── Progress dots ────────────────────────────────────────────────────────────
+function mentalMkProgDots(total, current) {
+  var wrap = document.createElement('div');
+  wrap.className = 'mental-prog-dots';
+  for (var i = 0; i < total; i++) {
+    var dot = document.createElement('div');
+    dot.className = 'mental-prog-dot' + (i < current ? ' done' : i === current ? ' active' : '');
+    wrap.appendChild(dot);
+  }
+  return wrap;
+}
+
+// ─── Milestone badge ──────────────────────────────────────────────────────────
+function mentalShowMilestoneBadge(text) {
+  var badge = document.createElement('div');
+  badge.className = 'mental-flow-milestone';
+  badge.textContent = text;
+  document.body.appendChild(badge);
+  setTimeout(function() { if (badge.parentNode) badge.parentNode.removeChild(badge); }, 3000);
+}
+
+// ─── Flow 1: Clasificación de Tareas ─────────────────────────────────────────
+function mentalShowClasificacion(container, section, card) {
+  container.innerHTML = '';
+  mentalSetHeader(card.label, function() { mentalShowSection(container, section); });
+  var view = document.createElement('div'); view.className = 'mental-tech-view';
+  var mainCard = document.createElement('div'); mainCard.className = 'mental-tech-section';
+
+  var hdr = document.createElement('div'); hdr.className = 'mental-clas-header';
+  hdr.textContent = 'Organiza tus tareas según dificultad e impacto para elegir la correcta al iniciar una sesión de flow.';
+  mainCard.appendChild(hdr);
+
+  var data;
+  try { data = JSON.parse(localStorage.getItem('mental_tareas_clasificacion') || 'null') || {}; }
+  catch(e) { data = {}; }
+
+  var quads = [
+    { id: 'flow',     label: '🎯 Flow Zone',  color: '#5e5ce6' },
+    { id: 'win',      label: '⚡ Quick Win',   color: '#30d158' },
+    { id: 'profundo', label: '🧠 Profundo',    color: '#0a84ff' },
+    { id: 'defer',    label: '📌 Diferir',     color: '#636366' }
+  ];
+  quads.forEach(function(q) { if (!Array.isArray(data[q.id])) data[q.id] = []; });
+
+  function save() { localStorage.setItem('mental_tareas_clasificacion', JSON.stringify(data)); }
+
+  var grid = document.createElement('div'); grid.className = 'mental-clas-grid';
+  var quadEls = {};
+  quads.forEach(function(q) {
+    var qEl = document.createElement('div'); qEl.className = 'mental-clas-q';
+    qEl.style.borderTop = '2px solid ' + q.color;
+    var lbl = document.createElement('div'); lbl.className = 'mental-clas-q-label';
+    lbl.style.color = q.color; lbl.textContent = q.label;
+    var items = document.createElement('div'); items.className = 'mental-clas-q-items';
+    qEl.appendChild(lbl); qEl.appendChild(items);
+    quadEls[q.id] = items;
+    grid.appendChild(qEl);
+  });
+  mainCard.appendChild(grid);
+
+  function renderQuad(qid) {
+    var el = quadEls[qid]; el.innerHTML = '';
+    (data[qid] || []).forEach(function(task, i) {
+      var row = document.createElement('div'); row.className = 'mental-clas-task';
+      var txt = document.createElement('span'); txt.className = 'mental-clas-task-txt'; txt.textContent = task;
+      var del = document.createElement('button'); del.className = 'mental-clas-task-del'; del.textContent = '×';
+      del.addEventListener('click', (function(idx) {
+        return function() { data[qid].splice(idx, 1); save(); renderQuad(qid); };
+      }(i)));
+      row.appendChild(txt); row.appendChild(del); el.appendChild(row);
+    });
+  }
+  quads.forEach(function(q) { renderQuad(q.id); });
+
+  mainCard.appendChild(mentalMkInnerSep());
+  var addRow = document.createElement('div'); addRow.className = 'mental-clas-add';
+  var inp = document.createElement('input'); inp.type = 'text'; inp.placeholder = 'Nueva tarea…'; inp.className = 'mental-clas-inp';
+  var sel = document.createElement('select'); sel.className = 'mental-clas-sel';
+  quads.forEach(function(q) {
+    var opt = document.createElement('option'); opt.value = q.id; opt.textContent = q.label; sel.appendChild(opt);
+  });
+  var addBtn = document.createElement('button'); addBtn.className = 'mental-clas-addbtn'; addBtn.textContent = '+';
+  addBtn.addEventListener('click', function() {
+    var val = inp.value.trim(); if (!val) return;
+    data[sel.value].push(val); save(); renderQuad(sel.value);
+    inp.value = ''; inp.focus();
+  });
+  inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); } });
+  addRow.appendChild(inp); addRow.appendChild(sel); addRow.appendChild(addBtn);
+  mainCard.appendChild(addRow);
+  view.appendChild(mainCard);
+  container.appendChild(view);
+}
+
+// ─── Flow 2: Deuda de Dopamina ────────────────────────────────────────────────
+function mentalShowDeudaDopamina(container, section, card) {
+  mentalBuildTechView(container, section, card, function(view) {
+    var cfg = mentalGetConfig();
+    var infoCard = document.createElement('div'); infoCard.className = 'mental-tech-section';
+    var guide = createGuideSection([
+      'Busca un espacio tranquilo sin pantallas ni notificaciones.',
+      'Siéntate o recuéstate en silencio. No hagas nada que produzca dopamina fácil.',
+      'Si surgen impulsos de revisar el teléfono o poner música, simplemente obsérvelos sin actuar.',
+      'El objetivo es dejar que tu línea base de dopamina baje al nivel mínimo natural.'
+    ]);
+    infoCard.appendChild(guide);
+    infoCard.appendChild(mentalMkInnerSep());
+    infoCard.appendChild(createScheduleTag('Antes de una sesión de enfoque · Permite que tu dopamina base descienda para que el trabajo real sea más recompensante y el flow sea más accesible.'));
+    infoCard.appendChild(mentalMkInnerSep());
+    infoCard.appendChild(createInfoToggle('La dopamina no es una recompensa: es anticipación. Cada scroll y notificación eleva tu línea base. Cuando esa base está alta, el trabajo real — que produce dopamina de forma sostenida pero más lenta — no puede competir. Una pausa sin estímulos baja la base y restaura tu capacidad de encontrar recompensante el esfuerzo cognitivo.'));
+    view.appendChild(infoCard);
+    view.appendChild(mentalMkSep());
+    var timerCard = document.createElement('div'); timerCard.className = 'mental-tech-section';
+    timerCard.appendChild(createSimpleTimer({
+      duration_s: cfg.deuda_dopamina_min * 60,
+      onStart: function() { guide._collapse(); }
+    }));
+    view.appendChild(timerCard);
+  });
+}
+
+// ─── Flow 3: Sesión de Enfoque ────────────────────────────────────────────────
+function mentalShowSesionEnfoque(container, section, card) {
+  _mentalFlowSessionData = null;
+  renderEnfoqueSetup();
+
+  function renderEnfoqueSetup() {
+    container.innerHTML = '';
+    mentalSetHeader(card.label, function() { mentalShowSection(container, section); });
+    var view = document.createElement('div'); view.className = 'mental-tech-view';
+    var infoCard = document.createElement('div'); infoCard.className = 'mental-tech-section';
+    var guide = createGuideSection([
+      'Silencia notificaciones y cierra pestañas que no necesitas.',
+      'Elige UNA sola tarea de tu cuadrante Flow Zone o Profundo.',
+      'Define cuánto tiempo vas a dedicar. No busques terminar la tarea, busca el tiempo en flow.',
+      'Si aparece un pensamiento distractor, anótalo mentalmente y vuelve a la tarea.'
+    ]);
+    infoCard.appendChild(guide);
+    infoCard.appendChild(mentalMkInnerSep());
+    var durLbl = document.createElement('div'); durLbl.className = 'mental-flow-sec-lbl'; durLbl.textContent = 'Duración de la sesión';
+    infoCard.appendChild(durLbl);
+    var durRow = document.createElement('div'); durRow.className = 'mental-dur-row';
+    var durInp = document.createElement('input');
+    durInp.type = 'number'; durInp.min = '5'; durInp.max = '180'; durInp.value = '25';
+    durInp.className = 'mental-dur-inp'; durInp.setAttribute('inputmode', 'numeric');
+    var durUnit = document.createElement('span'); durUnit.className = 'mental-dur-unit'; durUnit.textContent = 'minutos';
+    var startBtn = document.createElement('button'); startBtn.className = 'mental-flow-start'; startBtn.textContent = 'Iniciar Sesión';
+    startBtn.addEventListener('click', function() {
+      var min = parseInt(durInp.value, 10); if (isNaN(min) || min < 1) min = 25;
+      renderEnfoqueTimer(min);
+    });
+    durRow.appendChild(durInp); durRow.appendChild(durUnit); durRow.appendChild(startBtn);
+    infoCard.appendChild(durRow);
+    view.appendChild(infoCard);
+    container.appendChild(view);
+  }
+
+  function renderEnfoqueTimer(plannedMin) {
+    var transitionCancelled = false;
+    container.innerHTML = '';
+    mentalSetHeader(card.label, function() { transitionCancelled = true; renderEnfoqueSetup(); });
+
+    var total = plannedMin * 60, remaining = total, elapsed = 0;
+    var running = false, intervalId = null;
+    var nextMilestone = 900, halfShown = false;
+    var now0 = new Date();
+    var startTime = now0.getHours() + ':' + (now0.getMinutes() < 10 ? '0' : '') + now0.getMinutes();
+    var R = 62, CIRC = 2 * Math.PI * R;
+    var NS = 'http://www.w3.org/2000/svg';
+
+    var view = document.createElement('div'); view.className = 'mental-tech-view';
+    var timerCard = document.createElement('div'); timerCard.className = 'mental-tech-section';
+    timerCard.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:14px;';
+
+    var sesLbl = document.createElement('div'); sesLbl.className = 'mental-flow-sec-lbl';
+    sesLbl.style.cssText = 'text-align:center;margin:0;';
+    sesLbl.textContent = 'Sesión de ' + plannedMin + ' min';
+    timerCard.appendChild(sesLbl);
+
+    var ringWrap = document.createElement('div'); ringWrap.className = 'mental-timer-ring-wrap';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', '160'); svg.setAttribute('height', '160'); svg.setAttribute('viewBox', '0 0 160 160');
+    var track = document.createElementNS(NS, 'circle');
+    track.setAttribute('cx', '80'); track.setAttribute('cy', '80'); track.setAttribute('r', String(R));
+    track.style.cssText = 'fill:none;stroke:rgba(255,255,255,.08);stroke-width:8;';
+    var prog = document.createElementNS(NS, 'circle');
+    prog.setAttribute('cx', '80'); prog.setAttribute('cy', '80'); prog.setAttribute('r', String(R));
+    prog.style.cssText = 'fill:none;stroke:#5e5ce6;stroke-width:8;stroke-linecap:round;' +
+      'stroke-dasharray:' + CIRC.toFixed(2) + ';stroke-dashoffset:0;' +
+      'transform:rotate(-90deg);transform-origin:80px 80px;transition:stroke-dashoffset .1s linear;';
+    svg.appendChild(track); svg.appendChild(prog);
+    ringWrap.appendChild(svg);
+    var overlay = document.createElement('div'); overlay.className = 'mental-timer-overlay';
+    var timeEl = document.createElement('div'); timeEl.className = 'mental-timer-time';
+    timeEl.textContent = mentalFmtTime(remaining);
+    overlay.appendChild(timeEl); ringWrap.appendChild(overlay);
+    timerCard.appendChild(ringWrap);
+
+    var ctrlWrap = document.createElement('div'); ctrlWrap.className = 'mental-metro-ctrl';
+    var pauseBtn = document.createElement('button'); pauseBtn.className = 'mental-cfg-save'; pauseBtn.textContent = 'Pausar';
+    var stopBtn  = document.createElement('button'); stopBtn.className  = 'mental-cfg-reset'; stopBtn.textContent  = 'Terminar';
+    ctrlWrap.appendChild(pauseBtn); ctrlWrap.appendChild(stopBtn);
+    timerCard.appendChild(ctrlWrap);
+    view.appendChild(timerCard);
+    container.appendChild(view);
+
+    function updateUI() {
+      var pct = remaining / total;
+      prog.style.strokeDashoffset = String((CIRC * (1 - pct)).toFixed(2));
+      timeEl.textContent = mentalFmtTime(remaining);
+    }
+
+    function tick() {
+      remaining -= 0.1; elapsed += 0.1;
+      if (remaining <= 0) { remaining = 0; elapsed = total; updateUI(); finishSession(false); return; }
+      if (!halfShown && elapsed >= total / 2) {
+        halfShown = true;
+        mentalShowMilestoneBadge('🎯 Mitad alcanzada — ¡Sigue!');
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+      }
+      if (elapsed >= nextMilestone) {
+        nextMilestone += 900;
+        mentalShowMilestoneBadge('⚡ ' + Math.floor(elapsed / 60) + ' min en flow');
+        if (navigator.vibrate) navigator.vibrate(150);
+      }
+      updateUI();
+    }
+
+    function togglePause() {
+      if (running) {
+        clearInterval(intervalId);
+        _mentalTimers = _mentalTimers.filter(function(x) { return x !== intervalId; });
+        intervalId = null; running = false; pauseBtn.textContent = 'Reanudar';
+      } else {
+        running = true; intervalId = setInterval(tick, 100); _mentalTimers.push(intervalId); pauseBtn.textContent = 'Pausar';
+      }
+    }
+
+    function finishSession(stopped) {
+      if (intervalId) {
+        clearInterval(intervalId);
+        _mentalTimers = _mentalTimers.filter(function(x) { return x !== intervalId; });
+        intervalId = null;
+      }
+      running = false;
+      var now1 = new Date();
+      var endTime = now1.getHours() + ':' + (now1.getMinutes() < 10 ? '0' : '') + now1.getMinutes();
+      _mentalFlowSessionData = {
+        fecha: now1.toISOString().slice(0, 10),
+        hora_inicio: startTime,
+        hora_fin: endTime,
+        duracion_planeada_min: plannedMin,
+        duracion_real_s: Math.round(elapsed),
+        distracciones: [],
+        rating: null,
+        cierre: null,
+        notas: ''
+      };
+      if (!stopped && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      prog.style.stroke = '#30d158';
+      ctrlWrap.innerHTML = '';
+      var doneEl = document.createElement('div'); doneEl.className = 'mental-metro-done';
+      doneEl.textContent = stopped ? '↗ Sesión terminada' : '✓ ¡Sesión completada!';
+      ctrlWrap.appendChild(doneEl);
+      var protoCard = null;
+      section.cards.forEach(function(c) { if (c.id === 'protocolo_salida') protoCard = c; });
+      setTimeout(function() {
+        if (transitionCancelled) return;
+        if (protoCard) mentalShowProtocoloSalida(container, section, protoCard);
+        else mentalShowSection(container, section);
+      }, 1500);
+    }
+
+    pauseBtn.addEventListener('click', togglePause);
+    stopBtn.addEventListener('click', function() { finishSession(true); });
+    running = true; intervalId = setInterval(tick, 100); _mentalTimers.push(intervalId);
+  }
+}
+
+// ─── Flow 4: Protocolo de Salida ──────────────────────────────────────────────
+function mentalShowProtocoloSalida(container, section, card) {
+  if (!_mentalFlowSessionData) {
+    var n = new Date();
+    _mentalFlowSessionData = {
+      fecha: n.toISOString().slice(0, 10),
+      hora_inicio: null,
+      hora_fin: n.getHours() + ':' + (n.getMinutes() < 10 ? '0' : '') + n.getMinutes(),
+      duracion_planeada_min: null,
+      duracion_real_s: null,
+      distracciones: [],
+      rating: null,
+      cierre: null,
+      notas: ''
+    };
+  }
+  mentalShowProtocoloStep1(container, section, card);
+}
+
+// Paso 1 — Captura de distracciones
+function mentalShowProtocoloStep1(container, section, card) {
+  container.innerHTML = '';
+  mentalSetHeader('Protocolo de Salida', function() { mentalShowSection(container, section); });
+  var view = document.createElement('div'); view.className = 'mental-tech-view';
+  var mainCard = document.createElement('div'); mainCard.className = 'mental-tech-section';
+  mainCard.appendChild(mentalMkProgDots(3, 0));
+
+  var title = document.createElement('div'); title.className = 'mental-proto-title'; title.textContent = 'Captura de Distracciones';
+  mainCard.appendChild(title);
+  var sub = document.createElement('div'); sub.className = 'mental-proto-sub';
+  sub.textContent = '¿Qué interrumpió tu enfoque? Escríbelo para registrarlo y vaciarlo de tu cabeza.';
+  mainCard.appendChild(sub);
+
+  var catalog = [];
+  dbGetAll('flow_distraccion_catalogo').then(function(rows) { catalog = rows || []; }).catch(function() {});
+
+  var chipsEl = document.createElement('div'); chipsEl.className = 'mental-chips';
+  mainCard.appendChild(chipsEl);
+
+  function renderChips() {
+    chipsEl.innerHTML = '';
+    (_mentalFlowSessionData.distracciones || []).forEach(function(d, i) {
+      var chip = document.createElement('span'); chip.className = 'mental-chip';
+      var txt = document.createTextNode(d);
+      var x = document.createElement('button'); x.className = 'mental-chip-x'; x.textContent = '×';
+      x.addEventListener('click', (function(idx) {
+        return function() { _mentalFlowSessionData.distracciones.splice(idx, 1); renderChips(); };
+      }(i)));
+      chip.appendChild(txt); chip.appendChild(x);
+      chipsEl.appendChild(chip);
+    });
+  }
+  renderChips();
+
+  var acWrap = document.createElement('div'); acWrap.className = 'mental-ac-wrap';
+  var acInp = document.createElement('input'); acInp.type = 'text'; acInp.placeholder = 'Añadir distracción…'; acInp.className = 'mental-ac-inp';
+  var acDrop = document.createElement('div'); acDrop.className = 'mental-ac-drop'; acDrop.style.display = 'none';
+  acWrap.appendChild(acInp); acWrap.appendChild(acDrop);
+  mainCard.appendChild(acWrap);
+
+  function addDistraccion(name) {
+    var val = name.trim(); if (!val) return;
+    if (!_mentalFlowSessionData.distracciones) _mentalFlowSessionData.distracciones = [];
+    if (_mentalFlowSessionData.distracciones.indexOf(val) === -1) {
+      _mentalFlowSessionData.distracciones.push(val); renderChips();
+    }
+    acInp.value = ''; acDrop.style.display = 'none';
+  }
+
+  acInp.addEventListener('input', function() {
+    var q = acInp.value.trim().toLowerCase();
+    acDrop.innerHTML = ''; acDrop.style.display = 'none';
+    if (!q || !catalog.length) return;
+    var matches = catalog.filter(function(c) {
+      return c.nombre_normalizado && c.nombre_normalizado.indexOf(q) === 0;
+    }).sort(function(a, b) { return (b.conteo || 0) - (a.conteo || 0); }).slice(0, 5);
+    if (!matches.length) return;
+    matches.forEach(function(c) {
+      var opt = document.createElement('div'); opt.className = 'mental-ac-opt'; opt.textContent = c.nombre;
+      opt.addEventListener('mousedown', function(e) { e.preventDefault(); });
+      opt.addEventListener('click', function() { addDistraccion(c.nombre); });
+      opt.addEventListener('touchend', function(e) { e.preventDefault(); addDistraccion(c.nombre); });
+      acDrop.appendChild(opt);
+    });
+    acDrop.style.display = 'block';
+  });
+  acInp.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); addDistraccion(acInp.value); }
+    if (e.key === 'Escape') { acDrop.style.display = 'none'; }
+  });
+  acInp.addEventListener('blur', function() { setTimeout(function() { acDrop.style.display = 'none'; }, 150); });
+
+  var nextBtn = document.createElement('button'); nextBtn.className = 'mental-flow-next';
+  nextBtn.textContent = 'Siguiente →';
+  nextBtn.addEventListener('click', function() { mentalShowProtocoloStep2(container, section, card); });
+  mainCard.appendChild(nextBtn);
+  view.appendChild(mainCard);
+  container.appendChild(view);
+}
+
+// Paso 2 — Evaluación
+function mentalShowProtocoloStep2(container, section, card) {
+  container.innerHTML = '';
+  mentalSetHeader('Protocolo de Salida', function() { mentalShowProtocoloStep1(container, section, card); });
+  var view = document.createElement('div'); view.className = 'mental-tech-view';
+  var mainCard = document.createElement('div'); mainCard.className = 'mental-tech-section';
+  mainCard.appendChild(mentalMkProgDots(3, 1));
+
+  var title = document.createElement('div'); title.className = 'mental-proto-title'; title.textContent = 'Evaluación de la Sesión';
+  mainCard.appendChild(title);
+
+  var rLbl = document.createElement('div'); rLbl.className = 'mental-flow-sec-lbl';
+  rLbl.textContent = '¿Qué tan enfocado estuviste? (1 = muy disperso · 5 = flow total)';
+  mainCard.appendChild(rLbl);
+
+  var ratingRow = document.createElement('div'); ratingRow.className = 'mental-rating-row';
+  var selRating = _mentalFlowSessionData.rating || null;
+  var rBtns = [];
+  for (var r = 1; r <= 5; r++) {
+    (function(val) {
+      var btn = document.createElement('button');
+      btn.className = 'mental-rating-btn' + (selRating === val ? ' sel' : '');
+      btn.textContent = String(val);
+      btn.addEventListener('click', function() {
+        selRating = val; _mentalFlowSessionData.rating = val;
+        rBtns.forEach(function(b, i) { if (i + 1 === val) b.classList.add('sel'); else b.classList.remove('sel'); });
+      });
+      ratingRow.appendChild(btn); rBtns.push(btn);
+    }(r));
+  }
+  mainCard.appendChild(ratingRow);
+  mainCard.appendChild(mentalMkInnerSep());
+
+  var cLbl = document.createElement('div'); cLbl.className = 'mental-flow-sec-lbl'; cLbl.textContent = '¿Cómo termina esta sesión?';
+  mainCard.appendChild(cLbl);
+
+  var radioOpts = [
+    { id: 'satisfecho',   label: '✅ Satisfecho — Completé lo que me propuse'     },
+    { id: 'incompleto',   label: '🔄 Incompleto — Quedó trabajo pendiente'       },
+    { id: 'interrumpido', label: '⚠️ Interrumpido — Algo externo cortó la sesión' }
+  ];
+  var radioGrp = document.createElement('div'); radioGrp.className = 'mental-radio-grp';
+  var selCierre = _mentalFlowSessionData.cierre || null;
+  var rdots = {};
+  radioOpts.forEach(function(opt) {
+    var row = document.createElement('div'); row.className = 'mental-radio-row';
+    var dot = document.createElement('div'); dot.className = 'mental-radio-dot' + (selCierre === opt.id ? ' sel' : '');
+    var lbl = document.createElement('div'); lbl.className = 'mental-radio-lbl'; lbl.textContent = opt.label;
+    rdots[opt.id] = dot;
+    row.appendChild(dot); row.appendChild(lbl);
+    row.addEventListener('click', (function(oid) {
+      return function() {
+        selCierre = oid; _mentalFlowSessionData.cierre = oid;
+        Object.keys(rdots).forEach(function(k) { if (k === oid) rdots[k].classList.add('sel'); else rdots[k].classList.remove('sel'); });
+      };
+    }(opt.id)));
+    radioGrp.appendChild(row);
+  });
+  mainCard.appendChild(radioGrp);
+
+  var nextBtn = document.createElement('button'); nextBtn.className = 'mental-flow-next';
+  nextBtn.textContent = 'Siguiente →';
+  nextBtn.addEventListener('click', function() { mentalShowProtocoloStep3(container, section, card); });
+  mainCard.appendChild(nextBtn);
+  view.appendChild(mainCard);
+  container.appendChild(view);
+}
+
+// Paso 3 — Notas y guardar
+function mentalShowProtocoloStep3(container, section, card) {
+  container.innerHTML = '';
+  mentalSetHeader('Protocolo de Salida', function() { mentalShowProtocoloStep2(container, section, card); });
+  var view = document.createElement('div'); view.className = 'mental-tech-view';
+  var mainCard = document.createElement('div'); mainCard.className = 'mental-tech-section';
+  mainCard.appendChild(mentalMkProgDots(3, 2));
+
+  var title = document.createElement('div'); title.className = 'mental-proto-title'; title.textContent = 'Notas y Guardar';
+  mainCard.appendChild(title);
+
+  var s = _mentalFlowSessionData;
+  if (s.duracion_real_s !== null) {
+    var sumLbl = document.createElement('div'); sumLbl.className = 'mental-flow-sec-lbl'; sumLbl.textContent = 'Resumen';
+    mainCard.appendChild(sumLbl);
+    var sumEl = document.createElement('div'); sumEl.className = 'mental-ses-sum';
+    function addLine(text) { var d = document.createElement('div'); d.textContent = text; sumEl.appendChild(d); }
+    if (s.hora_inicio) addLine('⏱ ' + s.hora_inicio + ' → ' + s.hora_fin);
+    var rS = s.duracion_real_s, rM = Math.floor(rS / 60), rSec = rS % 60;
+    addLine('📋 Planeado: ' + (s.duracion_planeada_min || '?') + ' min  ·  Real: ' + rM + ':' + (rSec < 10 ? '0' : '') + rSec);
+    if (s.rating) addLine('⭐ Enfoque: ' + s.rating + ' / 5');
+    if (s.cierre) addLine('🏷 Cierre: ' + s.cierre);
+    if ((s.distracciones || []).length) addLine('💭 Distracciones: ' + s.distracciones.join(', '));
+    mainCard.appendChild(sumEl);
+    mainCard.appendChild(mentalMkInnerSep());
+  }
+
+  var nLbl = document.createElement('div'); nLbl.className = 'mental-flow-sec-lbl'; nLbl.textContent = 'Notas (opcional)';
+  mainCard.appendChild(nLbl);
+  var notesInp = document.createElement('textarea'); notesInp.className = 'mental-notes-inp';
+  notesInp.placeholder = 'Aprendizajes, bloqueos, próximos pasos…';
+  notesInp.value = s.notas || '';
+  mainCard.appendChild(notesInp);
+
+  var saveBtn = document.createElement('button'); saveBtn.className = 'mental-flow-save'; saveBtn.textContent = 'Guardar Sesión';
+  saveBtn.addEventListener('click', function() {
+    saveBtn.disabled = true; saveBtn.textContent = 'Guardando…';
+    _mentalFlowSessionData.notas = notesInp.value.trim();
+    var n2 = new Date();
+    var sessionRecord = {
+      fecha:                 _mentalFlowSessionData.fecha,
+      hora_inicio:           _mentalFlowSessionData.hora_inicio  || null,
+      hora_fin:              _mentalFlowSessionData.hora_fin      || n2.toTimeString().slice(0, 5),
+      duracion_planeada_min: _mentalFlowSessionData.duracion_planeada_min || null,
+      duracion_real_s:       _mentalFlowSessionData.duracion_real_s       || null,
+      rating:                _mentalFlowSessionData.rating  || null,
+      cierre:                _mentalFlowSessionData.cierre  || null,
+      notas:                 _mentalFlowSessionData.notas
+    };
+    var today        = _mentalFlowSessionData.fecha;
+    var distracciones = (_mentalFlowSessionData.distracciones || []).slice();
+    dbPut('flow_sessions', sessionRecord).then(function(sesionId) {
+      return dbGetAll('flow_distraccion_catalogo').then(function(catalog) {
+        return mentalProcesarDistracciones(catalog || [], distracciones, sesionId, today, 0);
+      });
+    }).then(function() {
+      _mentalFlowSessionData = null;
+      saveBtn.textContent = '✓ Guardado';
+      saveBtn.style.background = '#30d158';
+      setTimeout(function() { mentalShowSection(container, section); }, 1200);
+    }).catch(function(err) {
+      saveBtn.disabled = false; saveBtn.textContent = 'Error — Reintentar';
+      console.error('[mental] guardar sesión:', err);
+    });
+  });
+  mainCard.appendChild(saveBtn);
+  view.appendChild(mainCard);
+  container.appendChild(view);
+}
+
+// ─── Guardar distracciones secuencialmente en IndexedDB ───────────────────────
+function mentalProcesarDistracciones(catalog, distracciones, sesionId, today, index) {
+  if (index >= distracciones.length) return Promise.resolve();
+  var nombre = distracciones[index];
+  var norm   = nombre.toLowerCase().trim();
+  return dbPut('flow_distracciones', {
+    sesion_id:          sesionId,
+    distraccion_nombre: nombre,
+    fecha:              today
+  }).then(function() {
+    var found = null;
+    for (var i = 0; i < catalog.length; i++) {
+      if (catalog[i].nombre_normalizado === norm) { found = catalog[i]; break; }
+    }
+    if (found) {
+      found.conteo = (found.conteo || 0) + 1;
+      return dbPut('flow_distraccion_catalogo', found);
+    } else {
+      var entry = { nombre: nombre, nombre_normalizado: norm, conteo: 1 };
+      return dbPut('flow_distraccion_catalogo', entry).then(function(newId) {
+        entry.id = newId; catalog.push(entry);
+      });
+    }
+  }).then(function() {
+    return mentalProcesarDistracciones(catalog, distracciones, sesionId, today, index + 1);
+  });
+}
