@@ -1858,3 +1858,859 @@ function mentalProcesarDistracciones(catalog, distracciones, sesionId, today, in
     return mentalProcesarDistracciones(catalog, distracciones, sesionId, today, index + 1);
   });
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FASE D — Flow State: Stats
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ─── Estilos Stats ────────────────────────────────────────────────────────────
+(function() {
+  if (document.getElementById('mental-styles-stats')) return;
+  var s = document.createElement('style');
+  s.id = 'mental-styles-stats';
+  s.textContent = [
+    '.flow-sec-hdr { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--t3); padding:16px 0 8px; font-family:-apple-system,sans-serif; }',
+    '.flow-metric-row { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }',
+    '.flow-metric { background:var(--bg2); border-radius:var(--r); padding:14px 8px; display:flex; flex-direction:column; align-items:center; text-align:center; gap:4px; }',
+    '.flow-metric-val { font-size:26px; font-weight:700; color:var(--t1); line-height:1; font-family:var(--font-display); }',
+    '.flow-metric-lbl { font-size:11px; color:var(--t3); font-family:-apple-system,sans-serif; line-height:1.3; }',
+    '.flow-range-bar { display:flex; gap:6px; margin:14px 0 8px; }',
+    '.flow-range-btn { flex:1; padding:7px 0; background:var(--bg2); border:none; border-radius:980px; font-size:13px; font-weight:500; color:var(--t2); cursor:pointer; font-family:-apple-system,sans-serif; -webkit-tap-highlight-color:transparent; }',
+    '.flow-range-btn.active { background:#5e5ce6; color:#fff; font-weight:700; }',
+    '.flow-chart-card { background:var(--bg2); border-radius:var(--r); padding:14px; margin-bottom:8px; overflow:hidden; }',
+    '.flow-chart-title { font-size:13px; font-weight:600; color:var(--t2); margin-bottom:10px; font-family:-apple-system,sans-serif; }',
+    '.flow-chart-empty { font-size:13px; color:var(--t3); text-align:center; padding:20px 0; font-family:-apple-system,sans-serif; }',
+    '.flow-rank-card { background:var(--bg2); border-radius:var(--r); padding:14px; margin-bottom:8px; }',
+    '.flow-rank-item { display:flex; align-items:center; gap:8px; padding:9px 0; border-bottom:.5px solid var(--sep); cursor:pointer; -webkit-tap-highlight-color:transparent; }',
+    '.flow-rank-item:active { opacity:.7; }',
+    '.flow-rank-num { font-size:12px; font-weight:700; color:var(--t3); width:16px; text-align:right; flex-shrink:0; font-family:-apple-system,sans-serif; }',
+    '.flow-rank-name { font-size:14px; color:var(--t1); flex:1; font-family:-apple-system,sans-serif; }',
+    '.flow-rank-count { font-size:12px; color:var(--t3); flex-shrink:0; font-family:-apple-system,sans-serif; white-space:nowrap; }',
+    '.flow-rank-bar-wrap { width:72px; flex-shrink:0; }',
+    '.flow-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px 32px; text-align:center; }',
+    '.flow-empty-icon { font-size:56px; margin-bottom:20px; }',
+    '.flow-empty-title { font-size:18px; font-weight:700; color:var(--t1); margin-bottom:8px; font-family:var(--font-display); }',
+    '.flow-empty-sub { font-size:14px; color:var(--t3); line-height:1.5; margin-bottom:24px; font-family:-apple-system,sans-serif; max-width:280px; }',
+    '.flow-empty-btn { background:#5e5ce6; border:none; border-radius:980px; padding:12px 24px; font-size:15px; font-weight:700; color:#fff; cursor:pointer; font-family:-apple-system,sans-serif; }',
+    '.flow-cal-dot { width:6px; height:6px; border-radius:50%; margin-top:2px; display:block; }',
+    '.flow-dir-item { display:flex; align-items:center; gap:8px; padding:12px 0; border-bottom:.5px solid var(--sep); flex-wrap:wrap; }',
+    '.flow-dir-item:last-of-type { border-bottom:none; }',
+    '.flow-dir-name { font-size:15px; color:var(--t1); flex:1; font-family:-apple-system,sans-serif; min-width:60px; }',
+    '.flow-dir-count { font-size:13px; color:var(--t3); font-family:-apple-system,sans-serif; }',
+    '.flow-dir-btn { background:none; border:.5px solid var(--sep2); border-radius:980px; padding:5px 10px; font-size:12px; color:var(--t2); cursor:pointer; font-family:-apple-system,sans-serif; white-space:nowrap; }',
+    '.flow-dir-btn.danger { border-color:rgba(255,69,58,.4); color:var(--red); }',
+    '.flow-dir-cb { width:20px; height:20px; border-radius:50%; border:2px solid var(--sep2); flex-shrink:0; cursor:pointer; position:relative; }',
+    '.flow-dir-cb.checked { background:#5e5ce6; border-color:#5e5ce6; }',
+    '.flow-dir-cb.checked::after { content:""; position:absolute; width:8px; height:8px; border-radius:50%; background:#fff; top:50%; left:50%; transform:translate(-50%,-50%); }',
+    '.flow-merge-bar { display:flex; gap:8px; align-items:center; margin-top:12px; padding-top:12px; border-top:.5px solid var(--sep); }',
+    '.flow-merge-inp { flex:1; background:var(--bg-card); border:1px solid var(--separator-strong); border-radius:var(--radius-lg); padding:9px 12px; font-size:14px; color:var(--t1); font-family:-apple-system,sans-serif; min-width:0; }',
+    '.flow-merge-btn { background:#5e5ce6; border:none; border-radius:980px; padding:9px 14px; font-size:13px; font-weight:700; color:#fff; cursor:pointer; font-family:-apple-system,sans-serif; white-space:nowrap; }'
+  ].join('\n');
+  document.head.appendChild(s);
+}());
+
+// ─── Estado del calendario flow ───────────────────────────────────────────────
+var _flowCalYear  = (new Date()).getFullYear();
+var _flowCalMonth = (new Date()).getMonth();
+
+// ─── Override mentalShowCard (añade stats) ────────────────────────────────────
+function mentalShowCard(container, section, card) {
+  if (section.id === 'recuperacion') {
+    switch (card.id) {
+      case 'coherencia': return mentalShowCoherencia(container, section, card);
+      case 'suspiro':    return mentalShowSuspiro(container, section, card);
+      case 'humming':    return mentalShowHumming(container, section, card);
+      case 'inmersion':  return mentalShowInmersion(container, section, card);
+      case 'masaje':     return mentalShowMasaje(container, section, card);
+    }
+  }
+  if (section.id === 'flow') {
+    switch (card.id) {
+      case 'clasificacion':    return mentalShowClasificacion(container, section, card);
+      case 'deuda_dopamina':   return mentalShowDeudaDopamina(container, section, card);
+      case 'sesion_enfoque':   return mentalShowSesionEnfoque(container, section, card);
+      case 'protocolo_salida': return mentalShowProtocoloSalida(container, section, card);
+      case 'stats':            return mentalShowFlowStats(container, section, card);
+    }
+  }
+  container.innerHTML = '';
+  mentalSetHeader(card.label, function() { mentalShowSection(container, section); });
+  var wrap = document.createElement('div'); wrap.className = 'mental-placeholder';
+  var iconEl  = document.createElement('div'); iconEl.className  = 'mental-placeholder-icon';  iconEl.textContent  = card.icon;
+  var titleEl = document.createElement('div'); titleEl.className = 'mental-placeholder-title'; titleEl.textContent = 'Próximamente';
+  var subEl   = document.createElement('div'); subEl.className   = 'mental-placeholder-sub';   subEl.textContent   = card.label;
+  wrap.appendChild(iconEl); wrap.appendChild(titleEl); wrap.appendChild(subEl);
+  container.appendChild(wrap);
+}
+
+// ─── Helpers de stats ─────────────────────────────────────────────────────────
+function flowGetPctEnfoque(s) {
+  if (s.pct_enfoque != null) return Number(s.pct_enfoque);
+  if (s.rating != null)      return s.rating * 20;
+  return 50;
+}
+
+function flowGetResultado(s) {
+  var c = s.cierre || s.resultado || '';
+  if (c === 'satisfecho'   || c === 'completado') return 'completado';
+  if (c === 'incompleto'   || c === 'parcial')    return 'parcial';
+  if (c === 'interrumpido')                        return 'interrumpido';
+  return 'parcial';
+}
+
+function flowFmtDur(seconds) {
+  if (!seconds && seconds !== 0) return '—';
+  var m = Math.round(Number(seconds) / 60);
+  if (m === 0) return '< 1 min';
+  if (m < 60) return m + ' min';
+  var h = Math.floor(m / 60), rem = m % 60;
+  return h + 'h' + (rem > 0 ? ' ' + rem + 'min' : '');
+}
+
+function flowFmtDateLong(dateStr) {
+  if (!dateStr) return '';
+  var d = new Date(dateStr + 'T00:00:00');
+  var meses = ['enero','febrero','marzo','abril','mayo','junio',
+               'julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  return d.getDate() + ' de ' + meses[d.getMonth()] + ', ' + d.getFullYear();
+}
+
+function flowMovingAvg(values, win) {
+  return values.map(function(v, i) {
+    var start = Math.max(0, i - win + 1);
+    var slice = values.slice(start, i + 1);
+    return slice.reduce(function(sum, x) { return sum + x; }, 0) / slice.length;
+  });
+}
+
+function filterSessionsByRange(sessions, range) {
+  if (range === 'todo') return sessions;
+  var daysBack = range === '1S' ? 7 : range === '1M' ? 30 : 90;
+  var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - daysBack);
+  var cutStr = cutoff.toISOString().slice(0, 10);
+  return sessions.filter(function(s) { return s.fecha >= cutStr; });
+}
+
+function flowGetDistraccionesRanked(filteredSessions, allDistracciones) {
+  var sesionIdsMap = {};
+  filteredSessions.forEach(function(s) { sesionIdsMap[s.id] = true; });
+  var counts = {};
+  allDistracciones.forEach(function(d) {
+    if (sesionIdsMap[d.sesion_id] && d.distraccion_nombre) {
+      counts[d.distraccion_nombre] = (counts[d.distraccion_nombre] || 0) + 1;
+    }
+  });
+  return Object.keys(counts).map(function(k) {
+    return { nombre: k, count: counts[k] };
+  }).sort(function(a, b) { return b.count - a.count; });
+}
+
+// ─── Punto de entrada: Stats ──────────────────────────────────────────────────
+function mentalShowFlowStats(container, section, card) {
+  container.innerHTML = '';
+  mentalSetHeader(card.label, function() { mentalShowSection(container, section); });
+
+  var view = document.createElement('div'); view.className = 'mental-tech-view';
+  var loadEl = document.createElement('div');
+  loadEl.style.cssText = 'color:var(--t3);font-size:14px;text-align:center;padding:40px 0;font-family:-apple-system,sans-serif;';
+  loadEl.textContent = 'Cargando…';
+  view.appendChild(loadEl);
+  container.appendChild(view);
+
+  Promise.all([
+    dbGetAll('flow_sessions'),
+    dbGetAll('flow_distracciones'),
+    dbGetAll('flow_distraccion_catalogo')
+  ]).then(function(results) {
+    var sessions      = (results[0] || []).sort(function(a,b){ return a.fecha>b.fecha?1:a.fecha<b.fecha?-1:0; });
+    var distracciones = results[1] || [];
+    var catalog       = results[2] || [];
+
+    view.innerHTML = '';
+
+    if (sessions.length === 0) {
+      buildFlowStatsEmpty(view, section, card);
+      return;
+    }
+
+    var currentRange = 'todo';
+
+    buildFlowResumen(view, sessions);
+    buildFlowCalendario(view, sessions);
+
+    var rangeContainer = document.createElement('div');
+    view.appendChild(rangeContainer);
+
+    function rebuildRanged() {
+      rangeContainer.innerHTML = '';
+      var filtered = filterSessionsByRange(sessions, currentRange);
+      rangeContainer.appendChild(buildFlowRangeBar(currentRange, function(r) { currentRange = r; rebuildRanged(); }));
+      buildFlowCharts(rangeContainer, filtered);
+      buildFlowRanking(rangeContainer, filtered, distracciones, sessions);
+    }
+    rebuildRanged();
+
+    var gestionBtn = document.createElement('button');
+    gestionBtn.className = 'mental-cfg-reset';
+    gestionBtn.style.cssText = 'width:100%;margin-top:4px;';
+    gestionBtn.textContent = 'Gestionar distracciones';
+    gestionBtn.addEventListener('click', function() { mentalShowDirectorioDistracciones(container, section, card); });
+    view.appendChild(gestionBtn);
+
+  }).catch(function(err) {
+    view.innerHTML = '';
+    var errEl = document.createElement('div');
+    errEl.style.cssText = 'color:var(--red);font-size:14px;padding:40px 16px;text-align:center;font-family:-apple-system,sans-serif;';
+    errEl.textContent = 'Error al cargar datos';
+    console.error('[flow stats]', err);
+    view.appendChild(errEl);
+  });
+}
+
+// ─── Estado vacío ─────────────────────────────────────────────────────────────
+function buildFlowStatsEmpty(view, section, card) {
+  var empty = document.createElement('div'); empty.className = 'flow-empty';
+  var icon  = document.createElement('div'); icon.className  = 'flow-empty-icon';  icon.textContent  = '📊';
+  var title = document.createElement('div'); title.className = 'flow-empty-title'; title.textContent = 'Sin sesiones aún';
+  var sub   = document.createElement('div'); sub.className   = 'flow-empty-sub';
+  sub.textContent = 'Completa una sesión de enfoque y registra tu experiencia para ver tus estadísticas aquí.';
+  var btn   = document.createElement('button'); btn.className = 'flow-empty-btn'; btn.textContent = 'Ir a Sesión de Enfoque →';
+  btn.addEventListener('click', function() {
+    var sesionCard = null;
+    section.cards.forEach(function(c) { if (c.id === 'sesion_enfoque') sesionCard = c; });
+    if (sesionCard) mentalShowSesionEnfoque(view.parentNode, section, sesionCard);
+  });
+  empty.appendChild(icon); empty.appendChild(title); empty.appendChild(sub); empty.appendChild(btn);
+
+  view.appendChild(empty);
+}
+
+// ─── Sección 1: Resumen general ───────────────────────────────────────────────
+function buildFlowResumen(view, sessions) {
+  var hdr = document.createElement('div'); hdr.className = 'flow-sec-hdr'; hdr.textContent = 'Resumen general';
+  view.appendChild(hdr);
+
+  var total      = sessions.length;
+  var sumEnfoque = sessions.reduce(function(s, ses) { return s + flowGetPctEnfoque(ses); }, 0);
+  var avgEnfoque = total > 0 ? Math.round(sumEnfoque / total) : 0;
+
+  var firstDate = sessions[0] ? new Date(sessions[0].fecha + 'T00:00:00') : new Date();
+  var daysDiff  = Math.max(1, (new Date() - firstDate) / (1000 * 60 * 60 * 24));
+  var perSem    = (total / (daysDiff / 7)).toFixed(1);
+
+  var row = document.createElement('div'); row.className = 'flow-metric-row';
+
+  function mkMetric(val, lbl) {
+    var m = document.createElement('div'); m.className = 'flow-metric';
+    var v = document.createElement('div'); v.className = 'flow-metric-val'; v.textContent = String(val);
+    var l = document.createElement('div'); l.className = 'flow-metric-lbl'; l.textContent = lbl;
+    m.appendChild(v); m.appendChild(l); return m;
+  }
+  row.appendChild(mkMetric(total,           'sesiones totales'));
+  row.appendChild(mkMetric(avgEnfoque + '%', 'enfoque promedio'));
+  row.appendChild(mkMetric(perSem,           'por semana'));
+  view.appendChild(row);
+}
+
+// ─── Sección 2: Calendario ────────────────────────────────────────────────────
+function buildFlowCalendario(view, sessions) {
+  var hdr = document.createElement('div'); hdr.className = 'flow-sec-hdr'; hdr.textContent = 'Historial';
+  view.appendChild(hdr);
+  var calWrap = document.createElement('div'); calWrap.className = 'mental-tech-section'; calWrap.style.padding = '0 0 4px';
+  view.appendChild(calWrap);
+  renderFlowCalendario(calWrap, sessions);
+}
+
+function renderFlowCalendario(panel, sessions) {
+  panel.innerHTML = '';
+  var year = _flowCalYear, month = _flowCalMonth;
+  var meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  var byDate = {};
+  sessions.forEach(function(s) {
+    if (!byDate[s.fecha]) byDate[s.fecha] = [];
+    byDate[s.fecha].push(s);
+  });
+
+  var header = document.createElement('div'); header.className = 'gym-cal-header';
+  var prevBtn = document.createElement('button'); prevBtn.className = 'gym-cal-nav'; prevBtn.textContent = '‹';
+  prevBtn.addEventListener('click', function() {
+    _flowCalMonth--; if (_flowCalMonth < 0) { _flowCalMonth = 11; _flowCalYear--; }
+    renderFlowCalendario(panel, sessions);
+  });
+  var nextBtn = document.createElement('button'); nextBtn.className = 'gym-cal-nav'; nextBtn.textContent = '›';
+  nextBtn.addEventListener('click', function() {
+    _flowCalMonth++; if (_flowCalMonth > 11) { _flowCalMonth = 0; _flowCalYear++; }
+    renderFlowCalendario(panel, sessions);
+  });
+  var calTitle = document.createElement('div'); calTitle.className = 'gym-cal-title'; calTitle.textContent = meses[month] + ' ' + year;
+  header.appendChild(prevBtn); header.appendChild(calTitle); header.appendChild(nextBtn);
+  panel.appendChild(header);
+
+  var dayLabels = ['Lu','Ma','Mi','Ju','Vi','Sá','Do'];
+  var labelRow  = document.createElement('div'); labelRow.className = 'gym-cal-grid';
+  dayLabels.forEach(function(d) {
+    var lbl = document.createElement('div'); lbl.className = 'gym-cal-day-label'; lbl.textContent = d;
+    labelRow.appendChild(lbl);
+  });
+  panel.appendChild(labelRow);
+
+  var grid        = document.createElement('div'); grid.className = 'gym-cal-grid';
+  var firstDay    = new Date(year, month, 1).getDay();
+  var startOffset = firstDay === 0 ? 6 : firstDay - 1;
+  var daysInMonth = new Date(year, month + 1, 0).getDate();
+  var today       = new Date();
+  var todayStr    = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+
+  for (var e = 0; e < startOffset; e++) {
+    grid.appendChild(document.createElement('div')).className = 'gym-cal-cell empty';
+  }
+
+  for (var day = 1; day <= daysInMonth; day++) {
+    var dateKey = year + '-' + String(month+1).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+    var daysSes = byDate[dateKey] || [];
+    var hasSes  = daysSes.length > 0;
+    var isToday = dateKey === todayStr;
+
+    var cell = document.createElement('div');
+    cell.className = 'gym-cal-cell' + (hasSes ? ' has-session' : '') + (isToday ? ' today' : '');
+    var numSpan = document.createElement('span'); numSpan.className = 'gym-cal-day-num'; numSpan.textContent = String(day);
+    cell.appendChild(numSpan);
+
+    if (hasSes) {
+      var avgPct  = daysSes.reduce(function(s, ses) { return s + flowGetPctEnfoque(ses); }, 0) / daysSes.length;
+      var dotColor = avgPct >= 65 ? '#30d158' : avgPct >= 35 ? '#ffd60a' : '#ff453a';
+      var dot = document.createElement('span'); dot.className = 'flow-cal-dot'; dot.style.background = dotColor;
+      cell.appendChild(dot);
+      (function(arr) {
+        cell.addEventListener('click', function() { showFlowDayDetail(arr); });
+      }(daysSes));
+    }
+    grid.appendChild(cell);
+  }
+  panel.appendChild(grid);
+}
+
+// ─── Range bar ────────────────────────────────────────────────────────────────
+function buildFlowRangeBar(currentRange, onChange) {
+  var bar = document.createElement('div'); bar.className = 'flow-range-bar';
+  ['1S','1M','3M','Todo'].forEach(function(r) {
+    var btn = document.createElement('button');
+    btn.className = 'flow-range-btn' + (r === currentRange ? ' active' : '');
+    btn.textContent = r;
+    btn.addEventListener('click', function() { onChange(r); });
+    bar.appendChild(btn);
+  });
+  return bar;
+}
+
+// ─── Sección 3: Gráficas ─────────────────────────────────────────────────────
+function buildFlowCharts(rangeContainer, filteredSessions) {
+  var hdr = document.createElement('div'); hdr.className = 'flow-sec-hdr'; hdr.textContent = 'Tendencia';
+  rangeContainer.appendChild(hdr);
+
+  var lineCard = document.createElement('div'); lineCard.className = 'flow-chart-card';
+  var lineTtl  = document.createElement('div'); lineTtl.className  = 'flow-chart-title'; lineTtl.textContent = 'Nivel de enfoque';
+  lineCard.appendChild(lineTtl);
+  flowBuildLineChart(lineCard, filteredSessions);
+  rangeContainer.appendChild(lineCard);
+
+  var donutCard = document.createElement('div'); donutCard.className = 'flow-chart-card';
+  var donutTtl  = document.createElement('div'); donutTtl.className  = 'flow-chart-title'; donutTtl.textContent = 'Tasa de cumplimiento';
+  donutCard.appendChild(donutTtl);
+  flowBuildDonutChart(donutCard, filteredSessions);
+  rangeContainer.appendChild(donutCard);
+}
+
+// ─── Gráfica de línea SVG ─────────────────────────────────────────────────────
+function flowBuildLineChart(container, sessions) {
+  if (sessions.length === 0) {
+    var empty = document.createElement('div'); empty.className = 'flow-chart-empty';
+    empty.textContent = 'Sin datos en este rango'; container.appendChild(empty); return;
+  }
+
+  var W = Math.max(200, (container.offsetWidth || 320) - 28);
+  var H = 160, PAD_L = 36, PAD_R = 12, PAD_T = 14, PAD_B = 28;
+  var chartW = W - PAD_L - PAD_R, chartH = H - PAD_T - PAD_B;
+  var n = sessions.length;
+  var values  = sessions.map(function(s) { return flowGetPctEnfoque(s); });
+  var avgVals = flowMovingAvg(values, 5);
+  var NS = 'http://www.w3.org/2000/svg';
+
+  var svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('width', W); svg.setAttribute('height', H);
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.style.cssText = 'display:block;overflow:visible;';
+
+  function xPos(i) { return PAD_L + (n === 1 ? chartW/2 : (i/(n-1)) * chartW); }
+  function yPos(v) { return PAD_T + chartH - (Math.max(0,Math.min(100,v))/100) * chartH; }
+
+  function mkLine(x1,y1,x2,y2,stroke,sw) {
+    var l = document.createElementNS(NS,'line');
+    l.setAttribute('x1',x1); l.setAttribute('y1',y1); l.setAttribute('x2',x2); l.setAttribute('y2',y2);
+    l.setAttribute('stroke', stroke||'rgba(255,255,255,.07)'); l.setAttribute('stroke-width', sw||'1');
+    return l;
+  }
+  function mkTxt(x,y,txt,anchor) {
+    var t = document.createElementNS(NS,'text');
+    t.setAttribute('x',x); t.setAttribute('y',y);
+    t.setAttribute('fill','rgba(255,255,255,.3)'); t.setAttribute('font-size','10');
+    t.setAttribute('text-anchor',anchor||'end'); t.setAttribute('font-family','-apple-system,sans-serif');
+    t.textContent = txt; return t;
+  }
+
+  svg.appendChild(mkLine(PAD_L, PAD_T, PAD_L, PAD_T+chartH));
+  [0, 50, 100].forEach(function(v) {
+    var y = yPos(v);
+    svg.appendChild(mkLine(PAD_L, y, PAD_L+chartW, y, 'rgba(255,255,255,.06)'));
+    svg.appendChild(mkTxt(PAD_L-5, y+4, String(v)));
+  });
+  svg.appendChild(mkLine(PAD_L, PAD_T+chartH, PAD_L+chartW, PAD_T+chartH));
+
+  if (n > 2) {
+    var avgPts = avgVals.map(function(v,i){ return xPos(i)+','+yPos(v); }).join(' ');
+    var avgPoly = document.createElementNS(NS,'polyline');
+    avgPoly.setAttribute('points',avgPts); avgPoly.setAttribute('fill','none');
+    avgPoly.setAttribute('stroke','rgba(94,92,230,.45)'); avgPoly.setAttribute('stroke-width','1.5');
+    avgPoly.setAttribute('stroke-linejoin','round'); avgPoly.setAttribute('stroke-linecap','round');
+    avgPoly.setAttribute('stroke-dasharray','4 3');
+    svg.appendChild(avgPoly);
+  }
+
+  var pts = values.map(function(v,i){ return xPos(i)+','+yPos(v); }).join(' ');
+  var poly = document.createElementNS(NS,'polyline');
+  poly.setAttribute('points',pts); poly.setAttribute('fill','none');
+  poly.setAttribute('stroke','#5e5ce6'); poly.setAttribute('stroke-width','2');
+  poly.setAttribute('stroke-linejoin','round'); poly.setAttribute('stroke-linecap','round');
+  svg.appendChild(poly);
+
+  var mAbr = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  sessions.forEach(function(s, i) {
+    var cx = xPos(i), cy2 = yPos(values[i]);
+    var c = document.createElementNS(NS,'circle');
+    c.setAttribute('cx',cx); c.setAttribute('cy',cy2);
+    c.setAttribute('r', n <= 20 ? '4' : '3'); c.setAttribute('fill','#5e5ce6');
+    svg.appendChild(c);
+    var showLbl = n <= 6 || i === 0 || i === n-1 || (n > 6 && i % Math.ceil(n/5) === 0);
+    if (showLbl && s.fecha) {
+      var d = new Date(s.fecha + 'T00:00:00');
+      svg.appendChild(mkTxt(cx, PAD_T+chartH+18, mAbr[d.getMonth()]+' '+d.getDate(), 'middle'));
+    }
+  });
+
+  container.appendChild(svg);
+}
+
+// ─── Donut de cumplimiento ────────────────────────────────────────────────────
+function flowBuildDonutChart(container, sessions) {
+  if (sessions.length === 0) {
+    var empty = document.createElement('div'); empty.className = 'flow-chart-empty';
+    empty.textContent = 'Sin datos en este rango'; container.appendChild(empty); return;
+  }
+
+  var counts = { completado: 0, parcial: 0, interrumpido: 0 };
+  sessions.forEach(function(s) { counts[flowGetResultado(s)]++; });
+  var total = sessions.length;
+
+  var data = [
+    { label: 'Completado',   value: counts.completado,  color: '#30d158' },
+    { label: 'Incompleto',   value: counts.parcial,      color: '#ffd60a' },
+    { label: 'Interrumpido', value: counts.interrumpido, color: '#ff453a' }
+  ];
+
+  var NS = 'http://www.w3.org/2000/svg';
+  var R = 36, SW = 16, SIZE = 90, cx = 45, cy = 45;
+  var circ = 2 * Math.PI * R;
+
+  var wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;align-items:center;gap:20px;';
+
+  var svg = document.createElementNS(NS,'svg');
+  svg.setAttribute('width',SIZE); svg.setAttribute('height',SIZE);
+  svg.setAttribute('viewBox','0 0 '+SIZE+' '+SIZE); svg.style.cssText = 'flex-shrink:0;';
+
+  var bg = document.createElementNS(NS,'circle');
+  bg.setAttribute('cx',cx); bg.setAttribute('cy',cy); bg.setAttribute('r',R);
+  bg.style.cssText = 'fill:none;stroke:rgba(255,255,255,.07);stroke-width:'+SW+';';
+  svg.appendChild(bg);
+
+  var angleOffset = -90;
+  data.forEach(function(d) {
+    if (d.value === 0) return;
+    var pct = d.value / total;
+    var dashLen = pct * circ;
+    var c = document.createElementNS(NS,'circle');
+    c.setAttribute('cx',cx); c.setAttribute('cy',cy); c.setAttribute('r',R);
+    c.setAttribute('transform','rotate('+angleOffset+','+cx+','+cy+')');
+    c.style.cssText = 'fill:none;stroke:'+d.color+';stroke-width:'+SW+';' +
+      'stroke-dasharray:'+dashLen.toFixed(2)+' '+(circ-dashLen).toFixed(2)+';';
+    svg.appendChild(c);
+    angleOffset += pct * 360;
+  });
+
+  var best = data.reduce(function(m,d){ return d.value>m.value?d:m; }, {value:0,label:''});
+  var cTxt = document.createElementNS(NS,'text');
+  cTxt.setAttribute('x',cx); cTxt.setAttribute('y',cy+1);
+  cTxt.setAttribute('text-anchor','middle'); cTxt.setAttribute('dominant-baseline','middle');
+  cTxt.setAttribute('font-size','14'); cTxt.setAttribute('font-weight','700');
+  cTxt.setAttribute('fill','white'); cTxt.setAttribute('font-family','-apple-system,sans-serif');
+  cTxt.textContent = total > 0 ? Math.round(best.value/total*100)+'%' : '—';
+  svg.appendChild(cTxt);
+  wrap.appendChild(svg);
+
+  var legend = document.createElement('div'); legend.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
+  data.forEach(function(d) {
+    var row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;gap:6px;';
+    var dot = document.createElement('div'); dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:'+d.color+';flex-shrink:0;';
+    var lbl = document.createElement('div'); lbl.style.cssText = 'font-size:12px;color:rgba(255,255,255,.65);font-family:-apple-system,sans-serif;';
+    lbl.textContent = d.label + ' · ' + (total>0 ? Math.round(d.value/total*100)+'%' : '0%');
+    row.appendChild(dot); row.appendChild(lbl); legend.appendChild(row);
+  });
+  wrap.appendChild(legend);
+  container.appendChild(wrap);
+}
+
+// ─── Sección 4: Ranking de distracciones ─────────────────────────────────────
+function buildFlowRanking(rangeContainer, filteredSessions, allDistracciones, allSessions) {
+  var ranked = flowGetDistraccionesRanked(filteredSessions, allDistracciones);
+
+  var hdr = document.createElement('div'); hdr.className = 'flow-sec-hdr'; hdr.textContent = 'Qué te distrae más';
+  rangeContainer.appendChild(hdr);
+
+  var rankCard = document.createElement('div'); rankCard.className = 'flow-rank-card';
+
+  if (ranked.length === 0) {
+    var empty = document.createElement('div'); empty.className = 'flow-chart-empty'; empty.textContent = 'Sin distracciones en este rango';
+    rankCard.appendChild(empty); rangeContainer.appendChild(rankCard); return;
+  }
+
+  var maxCount = ranked[0].count;
+  var showAll  = false;
+
+  function renderList() {
+    rankCard.innerHTML = '';
+    var toShow = showAll ? ranked : ranked.slice(0, 10);
+    toShow.forEach(function(item, idx) {
+      var row = document.createElement('div'); row.className = 'flow-rank-item';
+      var num  = document.createElement('div'); num.className  = 'flow-rank-num';  num.textContent  = String(idx + 1);
+      var name = document.createElement('div'); name.className = 'flow-rank-name'; name.textContent = item.nombre;
+      var cnt  = document.createElement('div'); cnt.className  = 'flow-rank-count'; cnt.textContent  = item.count + 'x';
+      var barWrap = document.createElement('div'); barWrap.className = 'flow-rank-bar-wrap';
+      var bar     = document.createElement('div');
+      var pct = maxCount > 0 ? (item.count / maxCount * 100) : 0;
+      bar.style.cssText = 'width:'+pct.toFixed(0)+'%;height:5px;border-radius:3px;' +
+        'background:rgba(255,69,58,'+(0.35 + pct/100 * 0.55).toFixed(2)+');';
+      barWrap.appendChild(bar);
+      row.appendChild(num); row.appendChild(name); row.appendChild(cnt); row.appendChild(barWrap);
+      row.addEventListener('click', (function(nombre) {
+        return function() { showFlowDistraccionDetail(nombre, allSessions, allDistracciones); };
+      }(item.nombre)));
+      rankCard.appendChild(row);
+    });
+
+    if (!showAll && ranked.length > 10) {
+      var moreBtn = document.createElement('button');
+      moreBtn.className = 'mental-cfg-reset'; moreBtn.style.cssText = 'width:100%;margin-top:8px;font-size:13px;';
+      moreBtn.textContent = 'Ver todas (' + ranked.length + ')';
+      moreBtn.addEventListener('click', function() { showAll = true; renderList(); });
+      rankCard.appendChild(moreBtn);
+    }
+  }
+  renderList();
+  rangeContainer.appendChild(rankCard);
+}
+
+// ─── Bottom sheet: día con sesiones ──────────────────────────────────────────
+function showFlowDayDetail(sessionsOnDay) {
+  var existing = document.getElementById('flow-day-sheet');
+  if (existing) existing.remove();
+
+  var overlay = document.createElement('div'); overlay.id = 'flow-day-sheet'; overlay.className = 'gym-modal-overlay';
+  var sheet   = document.createElement('div'); sheet.className = 'gym-modal';
+
+  var titleEl = document.createElement('div'); titleEl.className = 'gym-modal-title';
+  titleEl.textContent = '📅 ' + flowFmtDateLong(sessionsOnDay[0] ? sessionsOnDay[0].fecha : '');
+  sheet.appendChild(titleEl);
+
+  // Build session cards and placeholders for distracciones
+  var distPlaceholders = {};
+  sessionsOnDay.forEach(function(s, i) {
+    if (i > 0) {
+      var sep = document.createElement('div'); sep.style.cssText = 'height:.5px;background:var(--sep2);margin:12px 0;';
+      sheet.appendChild(sep);
+    }
+    var sesCard = document.createElement('div');
+    var sesHdr  = document.createElement('div'); sesHdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;';
+    var sesTtl  = document.createElement('div'); sesTtl.style.cssText  = 'font-size:15px;font-weight:700;color:var(--t1);font-family:-apple-system,sans-serif;';
+    sesTtl.textContent = 'Sesión ' + (i+1) + (s.hora_inicio ? ' · ' + s.hora_inicio : '');
+    var sesDur = document.createElement('div'); sesDur.style.cssText = 'font-size:14px;color:#5e5ce6;font-weight:600;font-family:-apple-system,sans-serif;';
+    sesDur.textContent = flowFmtDur(s.duracion_real_s);
+    sesHdr.appendChild(sesTtl); sesHdr.appendChild(sesDur); sesCard.appendChild(sesHdr);
+
+    var pct      = flowGetPctEnfoque(s);
+    var pctColor = pct >= 65 ? '#30d158' : pct >= 35 ? '#ffd60a' : '#ff453a';
+    var resultado = flowGetResultado(s);
+    var resIco    = resultado === 'completado' ? '✅' : resultado === 'parcial' ? '🔄' : '⚠️';
+    var resLbl    = resultado === 'completado' ? 'Completado' : resultado === 'parcial' ? 'Incompleto' : 'Interrumpido';
+
+    var infoRow = document.createElement('div'); infoRow.style.cssText = 'display:flex;gap:16px;margin-bottom:4px;';
+    var enfEl   = document.createElement('div'); enfEl.style.cssText = 'font-size:13px;font-family:-apple-system,sans-serif;color:var(--t2);';
+    enfEl.innerHTML = 'Enfoque: <strong style="color:' + pctColor + '">' + pct + '%</strong>';
+    var resEl = document.createElement('div'); resEl.style.cssText = 'font-size:13px;color:var(--t2);font-family:-apple-system,sans-serif;';
+    resEl.textContent = resIco + ' ' + resLbl;
+    infoRow.appendChild(enfEl); infoRow.appendChild(resEl); sesCard.appendChild(infoRow);
+
+    // Distraccion placeholder (filled async)
+    var distEl = document.createElement('div');
+    distEl.id = 'flow-ses-dist-' + s.id;
+    distEl.style.cssText = 'font-size:12px;color:var(--t3);font-family:-apple-system,sans-serif;margin-top:3px;display:none;';
+    sesCard.appendChild(distEl);
+    distPlaceholders[s.id] = distEl;
+
+    if (s.notas) {
+      var notaEl = document.createElement('div'); notaEl.style.cssText = 'font-size:13px;color:var(--t2);font-style:italic;margin-top:5px;font-family:-apple-system,sans-serif;line-height:1.4;';
+      notaEl.textContent = '"' + s.notas + '"';
+      sesCard.appendChild(notaEl);
+    }
+    sheet.appendChild(sesCard);
+  });
+
+  var closeBtn = document.createElement('button'); closeBtn.className = 'mental-cfg-reset'; closeBtn.style.cssText = 'width:100%;margin-top:4px;';
+  closeBtn.textContent = 'Cerrar'; closeBtn.addEventListener('click', function() { overlay.remove(); });
+  sheet.appendChild(closeBtn);
+
+  overlay.appendChild(sheet);
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+
+  // Load distracciones async and fill placeholders
+  var sesionIdsMap = {};
+  sessionsOnDay.forEach(function(s) { sesionIdsMap[s.id] = true; });
+  dbGetAll('flow_distracciones').then(function(allDist) {
+    var bySession = {};
+    (allDist || []).forEach(function(d) {
+      if (sesionIdsMap[d.sesion_id]) {
+        if (!bySession[d.sesion_id]) bySession[d.sesion_id] = [];
+        bySession[d.sesion_id].push(d.distraccion_nombre);
+      }
+    });
+    sessionsOnDay.forEach(function(s) {
+      var el = distPlaceholders[s.id];
+      var dists = bySession[s.id] || [];
+      if (el && dists.length > 0) { el.textContent = '💭 ' + dists.join(', '); el.style.display = ''; }
+    });
+  }).catch(function() {});
+}
+
+// ─── Bottom sheet: detalle de distracción ─────────────────────────────────────
+function showFlowDistraccionDetail(nombre, allSessions, allDistracciones) {
+  var existing = document.getElementById('flow-dist-sheet');
+  if (existing) existing.remove();
+
+  var overlay = document.createElement('div'); overlay.id = 'flow-dist-sheet'; overlay.className = 'gym-modal-overlay';
+  var sheet   = document.createElement('div'); sheet.className = 'gym-modal';
+
+  var matching = allDistracciones.filter(function(d) { return d.distraccion_nombre === nombre; });
+  var sesionIdsMap = {};
+  matching.forEach(function(d) { sesionIdsMap[d.sesion_id] = true; });
+  var matchingSessions = allSessions.filter(function(s) { return sesionIdsMap[s.id]; });
+  matchingSessions.sort(function(a,b){ return a.fecha>b.fecha?1:a.fecha<b.fecha?-1:0; });
+
+  var titleEl = document.createElement('div'); titleEl.className = 'gym-modal-title'; titleEl.textContent = nombre;
+  sheet.appendChild(titleEl);
+
+  var countEl = document.createElement('div');
+  countEl.style.cssText = 'color:#5e5ce6;font-size:15px;font-weight:600;margin-bottom:10px;font-family:-apple-system,sans-serif;';
+  countEl.textContent = matching.length + ' ve' + (matching.length === 1 ? 'z' : 'ces') + ' registrada' + (matching.length !== 1 ? 's' : '');
+  sheet.appendChild(countEl);
+
+  if (matchingSessions.length > 0) {
+    var firstLast = document.createElement('div');
+    firstLast.style.cssText = 'font-size:12px;color:var(--t3);margin-bottom:12px;font-family:-apple-system,sans-serif;';
+    firstLast.textContent = 'Primera: ' + flowFmtDateLong(matchingSessions[0].fecha);
+    if (matchingSessions.length > 1) firstLast.textContent += '  ·  Última: ' + flowFmtDateLong(matchingSessions[matchingSessions.length-1].fecha);
+    sheet.appendChild(firstLast);
+
+    var listLbl = document.createElement('div');
+    listLbl.style.cssText = 'font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--t3);margin-bottom:8px;font-family:-apple-system,sans-serif;';
+    listLbl.textContent = 'Sesiones donde apareció';
+    sheet.appendChild(listLbl);
+
+    var MAX_VISIBLE = 8;
+    matchingSessions.slice(0, MAX_VISIBLE).forEach(function(s) {
+      var row = document.createElement('div'); row.style.cssText = 'padding:8px 0;border-bottom:.5px solid var(--sep);';
+      var dateEl = document.createElement('div'); dateEl.style.cssText = 'font-size:13px;color:var(--t2);font-family:-apple-system,sans-serif;margin-bottom:2px;';
+      dateEl.textContent = flowFmtDateLong(s.fecha) + ' · ' + flowFmtDur(s.duracion_real_s);
+      row.appendChild(dateEl);
+      if (s.notas) {
+        var notaEl = document.createElement('div'); notaEl.style.cssText = 'font-size:12px;color:var(--t3);font-style:italic;font-family:-apple-system,sans-serif;';
+        notaEl.textContent = s.notas; row.appendChild(notaEl);
+      }
+      sheet.appendChild(row);
+    });
+    if (matchingSessions.length > MAX_VISIBLE) {
+      var moreEl = document.createElement('div'); moreEl.style.cssText = 'font-size:12px;color:var(--t3);padding-top:6px;font-family:-apple-system,sans-serif;';
+      moreEl.textContent = '+ ' + (matchingSessions.length - MAX_VISIBLE) + ' sesiones más';
+      sheet.appendChild(moreEl);
+    }
+  }
+
+  var closeBtn = document.createElement('button'); closeBtn.className = 'mental-cfg-reset'; closeBtn.style.cssText = 'width:100%;margin-top:8px;';
+  closeBtn.textContent = 'Cerrar'; closeBtn.addEventListener('click', function() { overlay.remove(); });
+  sheet.appendChild(closeBtn);
+
+  overlay.appendChild(sheet);
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+}
+
+// ─── Directorio de distracciones ─────────────────────────────────────────────
+function mentalShowDirectorioDistracciones(container, section, card) {
+  container.innerHTML = '';
+  mentalSetHeader('Distracciones', function() { mentalShowFlowStats(container, section, card); });
+
+  var view = document.createElement('div'); view.className = 'mental-tech-view';
+  var mainCard = document.createElement('div'); mainCard.className = 'mental-tech-section';
+  var titleEl = document.createElement('div'); titleEl.className = 'mental-proto-title'; titleEl.textContent = 'Gestión de Distracciones';
+  mainCard.appendChild(titleEl);
+  var listEl    = document.createElement('div');
+  var mergeBarEl = document.createElement('div');
+  mainCard.appendChild(listEl); mainCard.appendChild(mergeBarEl);
+  view.appendChild(mainCard);
+  container.appendChild(view);
+
+  dbGetAll('flow_distraccion_catalogo').then(function(catalog) {
+    catalog = (catalog || []).sort(function(a,b){ return (b.conteo||0)-(a.conteo||0); });
+    renderDirList(catalog, []);
+  });
+
+  function renderDirList(catalog, selectedIds) {
+    listEl.innerHTML = ''; mergeBarEl.innerHTML = '';
+
+    if (catalog.length === 0) {
+      var emptyEl = document.createElement('div');
+      emptyEl.style.cssText = 'color:var(--t3);font-size:14px;text-align:center;padding:24px 0;font-family:-apple-system,sans-serif;';
+      emptyEl.textContent = 'Sin distracciones registradas'; listEl.appendChild(emptyEl); return;
+    }
+
+    catalog.forEach(function(item) {
+      var row = document.createElement('div'); row.className = 'flow-dir-item';
+
+      var cb = document.createElement('div'); cb.className = 'flow-dir-cb' + (selectedIds.indexOf(item.id) !== -1 ? ' checked' : '');
+      cb.addEventListener('click', function() {
+        var idx = selectedIds.indexOf(item.id);
+        if (idx === -1) selectedIds.push(item.id); else selectedIds.splice(idx, 1);
+        renderDirList(catalog, selectedIds);
+      });
+
+      var nameEl = document.createElement('div'); nameEl.className = 'flow-dir-name'; nameEl.textContent = item.nombre;
+      var cntEl  = document.createElement('div'); cntEl.className  = 'flow-dir-count'; cntEl.textContent  = item.conteo + 'x';
+
+      var renBtn = document.createElement('button'); renBtn.className = 'flow-dir-btn'; renBtn.textContent = 'Renombrar';
+      renBtn.addEventListener('click', (function(it) {
+        return function() {
+          var inp = document.createElement('input'); inp.type = 'text'; inp.className = 'mental-ac-inp';
+          inp.value = it.nombre; inp.style.cssText = 'flex:1;padding:6px 10px;font-size:14px;height:auto;';
+          var saveR   = document.createElement('button'); saveR.className   = 'flow-merge-btn'; saveR.textContent   = 'OK'; saveR.style.cssText   = 'padding:5px 12px;font-size:13px;';
+          var cancelR = document.createElement('button'); cancelR.className = 'flow-dir-btn';   cancelR.textContent = '✕';  cancelR.style.cssText = 'padding:5px 10px;';
+          row.innerHTML = ''; row.style.flexWrap = 'nowrap'; row.style.gap = '6px';
+          row.appendChild(inp); row.appendChild(saveR); row.appendChild(cancelR);
+          inp.focus(); inp.select();
+          saveR.addEventListener('click', function() {
+            var newN = inp.value.trim();
+            if (!newN || newN === it.nombre) { renderDirList(catalog, selectedIds); return; }
+            executeDistRename(it, newN, function() {
+              dbGetAll('flow_distraccion_catalogo').then(function(nc) {
+                catalog = (nc||[]).sort(function(a,b){ return (b.conteo||0)-(a.conteo||0); });
+                renderDirList(catalog, selectedIds); showToast('Renombrado');
+              });
+            });
+          });
+          cancelR.addEventListener('click', function() { renderDirList(catalog, selectedIds); });
+          inp.addEventListener('keydown', function(e) { if (e.key==='Enter') saveR.click(); if (e.key==='Escape') cancelR.click(); });
+        };
+      }(item)));
+
+      var delBtn = document.createElement('button'); delBtn.className = 'flow-dir-btn danger'; delBtn.textContent = 'Eliminar';
+      delBtn.addEventListener('click', (function(it) {
+        return function() {
+          if (!window.confirm('¿Eliminar "' + it.nombre + '"? También se quitará de las sesiones registradas.')) return;
+          executeDistDelete(it, function() {
+            dbGetAll('flow_distraccion_catalogo').then(function(nc) {
+              catalog = (nc||[]).sort(function(a,b){ return (b.conteo||0)-(a.conteo||0); });
+              renderDirList(catalog, selectedIds.filter(function(id){ return id !== it.id; })); showToast('Eliminado');
+            });
+          });
+        };
+      }(item)));
+
+      row.appendChild(cb); row.appendChild(nameEl); row.appendChild(cntEl); row.appendChild(renBtn); row.appendChild(delBtn);
+      listEl.appendChild(row);
+    });
+
+    // Merge bar
+    if (selectedIds.length >= 2) {
+      var selected    = catalog.filter(function(c){ return selectedIds.indexOf(c.id) !== -1; });
+      var defaultName = selected.length > 0 ? selected[0].nombre : '';
+      var bar = document.createElement('div'); bar.className = 'flow-merge-bar';
+      var inp = document.createElement('input'); inp.type = 'text'; inp.className = 'flow-merge-inp';
+      inp.placeholder = 'Nombre unificado'; inp.value = defaultName;
+      var mBtn = document.createElement('button'); mBtn.className = 'flow-merge-btn'; mBtn.textContent = 'Unificar (' + selectedIds.length + ')';
+      mBtn.addEventListener('click', function() {
+        var unified = inp.value.trim(); if (!unified) return;
+        executeDistMerge(catalog, selectedIds, unified, function() {
+          dbGetAll('flow_distraccion_catalogo').then(function(nc) {
+            catalog = (nc||[]).sort(function(a,b){ return (b.conteo||0)-(a.conteo||0); });
+            renderDirList(catalog, []); showToast('Unificado');
+          });
+        });
+      });
+      bar.appendChild(inp); bar.appendChild(mBtn); mergeBarEl.appendChild(bar);
+    }
+  }
+}
+
+function executeDistRename(item, newNombre, callback) {
+  var oldNombre = item.nombre;
+  item.nombre = newNombre; item.nombre_normalizado = newNombre.toLowerCase().trim();
+  dbPut('flow_distraccion_catalogo', item).then(function() {
+    return dbGetAll('flow_distracciones');
+  }).then(function(all) {
+    return Promise.all((all||[]).filter(function(d){ return d.distraccion_nombre === oldNombre; }).map(function(d) {
+      d.distraccion_nombre = newNombre; return dbPut('flow_distracciones', d);
+    }));
+  }).then(callback).catch(function(e){ console.error('[rename]', e); });
+}
+
+function executeDistDelete(item, callback) {
+  dbDelete('flow_distraccion_catalogo', item.id).then(function() {
+    return dbGetAll('flow_distracciones');
+  }).then(function(all) {
+    return Promise.all((all||[]).filter(function(d){ return d.distraccion_nombre === item.nombre; }).map(function(d){ return dbDelete('flow_distracciones', d.id); }));
+  }).then(callback).catch(function(e){ console.error('[delete]', e); });
+}
+
+function executeDistMerge(catalog, selectedIds, unifiedNombre, callback) {
+  var selected      = catalog.filter(function(c){ return selectedIds.indexOf(c.id) !== -1; });
+  var selectedNames = selected.map(function(c){ return c.nombre; });
+  var unifiedNorm   = unifiedNombre.toLowerCase().trim();
+  var totalCount    = selected.reduce(function(s,c){ return s+(c.conteo||0); }, 0);
+  var existingEntry = null;
+  catalog.forEach(function(c){ if (c.nombre_normalizado === unifiedNorm && selectedIds.indexOf(c.id) === -1) existingEntry = c; });
+
+  dbGetAll('flow_distracciones').then(function(all) {
+    return Promise.all((all||[]).filter(function(d){ return selectedNames.indexOf(d.distraccion_nombre) !== -1; }).map(function(d) {
+      d.distraccion_nombre = unifiedNombre; return dbPut('flow_distracciones', d);
+    }));
+  }).then(function() {
+    return Promise.all(selectedIds.map(function(id){ return dbDelete('flow_distraccion_catalogo', id); }));
+  }).then(function() {
+    if (existingEntry) {
+      existingEntry.conteo = (existingEntry.conteo||0) + totalCount;
+      existingEntry.nombre = unifiedNombre; existingEntry.nombre_normalizado = unifiedNorm;
+      return dbPut('flow_distraccion_catalogo', existingEntry);
+    } else {
+      return dbPut('flow_distraccion_catalogo', { nombre: unifiedNombre, nombre_normalizado: unifiedNorm, conteo: totalCount });
+    }
+  }).then(callback).catch(function(e){ console.error('[merge]', e); });
+}
+
