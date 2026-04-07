@@ -117,8 +117,7 @@ var MENTAL_DEFAULTS = {
   humming_exhala_s:            13,
   humming_duracion_min:         5,
   inmersion_duracion_s:        30,
-  masaje_por_direccion_min:     2,
-  masaje_orejas:                2
+  masaje_por_direccion_min:     2
 };
 
 function mentalGetConfig() {
@@ -149,11 +148,11 @@ var MENTAL_SECTIONS = [
     label: 'Recuperación',
     desc: 'Técnicas de activación parasimpática',
     cards: [
-      { id: 'coherencia', icon: '🫁',  label: 'Respiración Coherencia' },
-      { id: 'suspiro',    icon: '😮‍💨', label: 'Suspiro Fisiológico'    },
-      { id: 'humming',    icon: '🎵',  label: 'Humming'               },
-      { id: 'inmersion',  icon: '🧊',  label: 'Inmersión Facial'       },
-      { id: 'masaje',     icon: '👂',  label: 'Masaje Auricular'       }
+      { id: 'coherencia', icon: '🫁',  label: 'Respiración Coherencia', subtitle: 'Mañana + Noche'             },
+      { id: 'suspiro',    icon: '😮‍💨', label: 'Suspiro Fisiológico',    subtitle: 'Mediodía / Estrés agudo'   },
+      { id: 'humming',    icon: '🎵',  label: 'Humming',               subtitle: 'Post-trabajo (18:00-19:00)' },
+      { id: 'masaje',     icon: '👂',  label: 'Masaje Auricular',       subtitle: 'Pre-sueño (21:00-22:00)'   },
+      { id: 'inmersion',  icon: '🧊',  label: 'Inmersión Facial',       subtitle: 'Situacional (crisis)'       }
     ]
   }
 ];
@@ -164,6 +163,37 @@ var _mentalTimers = [];
 function mentalClearTimers() {
   _mentalTimers.forEach(function(id) { clearInterval(id); });
   _mentalTimers = [];
+}
+
+// ─── Audio alerts ────────────────────────────────────────────────────────────
+function mentalMakeAudioCtx() {
+  try {
+    var ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  } catch(e) { return null; }
+}
+
+function mentalPlayAlert(ctx, triple) {
+  if (!ctx) return;
+  try {
+    var beepCount = triple ? 3 : 1;
+    for (var i = 0; i < beepCount; i++) {
+      (function(idx) {
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = 880;
+        osc.type = 'sine';
+        var t = ctx.currentTime + idx * 0.4;
+        gain.gain.setValueAtTime(0.3, t);
+        gain.gain.setValueAtTime(0, t + 0.2);
+        osc.start(t);
+        osc.stop(t + 0.25);
+      }(i));
+    }
+  } catch(e) {}
 }
 
 // ─── Formato tiempo ───────────────────────────────────────────────────────────
@@ -258,9 +288,14 @@ function mentalShowSection(container, section) {
 
     var iconEl  = document.createElement('div'); iconEl.className  = 'mental-card-icon';  iconEl.textContent  = card.icon;
     var labelEl = document.createElement('div'); labelEl.className = 'mental-card-label'; labelEl.textContent = card.label;
-
     cardEl.appendChild(iconEl);
     cardEl.appendChild(labelEl);
+    if (card.subtitle) {
+      var subEl = document.createElement('div');
+      subEl.style.cssText = 'font-size:11px;color:#8e8e93;font-family:-apple-system,sans-serif;text-align:center;line-height:1.3;margin-top:2px;';
+      subEl.textContent = card.subtitle;
+      cardEl.appendChild(subEl);
+    }
     cardEl.addEventListener('click', function() { mentalShowCard(container, section, card); });
     grid.appendChild(cardEl);
   });
@@ -368,8 +403,7 @@ function mentalShowConfig(container) {
   ]);
 
   cfgGroup('Masaje Auricular', [
-    { key: 'masaje_por_direccion_min', label: 'Duración por dirección (min)' },
-    { key: 'masaje_orejas',            label: 'Cantidad de orejas',           min: 1, max: 2 }
+    { key: 'masaje_por_direccion_min', label: 'Duración por dirección (min)' }
   ]);
 
   var actions  = document.createElement('div');
@@ -520,6 +554,7 @@ function createBreathingMetronome(opts) {
 
   var phaseIdx = 0, cycleCount = 0, phaseElapsed = 0, sessionElapsed = 0;
   var running = false, intervalId = null;
+  var _audioCtx = null;
 
   var wrap = document.createElement('div');
   wrap.className = 'mental-metro';
@@ -605,6 +640,7 @@ function createBreathingMetronome(opts) {
   }
 
   function start() {
+    _audioCtx = mentalMakeAudioCtx();
     if (opts.onStart) opts.onStart();
     phaseIdx = 0; cycleCount = 0; phaseElapsed = 0; sessionElapsed = 0;
     running = true;
@@ -639,7 +675,8 @@ function createBreathingMetronome(opts) {
   function finish() {
     if (intervalId) { clearInterval(intervalId); _mentalTimers = _mentalTimers.filter(function(x) { return x !== intervalId; }); }
     running = false;
-    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    mentalPlayAlert(_audioCtx, true);
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
     showDone(totalCycles + ' ciclo' + (totalCycles !== 1 ? 's' : '') + ' completado' + (totalCycles !== 1 ? 's' : ''));
     if (opts.onComplete) opts.onComplete();
   }
@@ -678,6 +715,7 @@ function createSimpleTimer(opts) {
   var total = Math.max(1, opts.duration_s);
   var remaining = total;
   var running = false, intervalId = null;
+  var _audioCtx = null;
   var R = 62, CIRC = 2 * Math.PI * R;
 
   var wrap = document.createElement('div');
@@ -741,6 +779,7 @@ function createSimpleTimer(opts) {
   }
 
   function start() {
+    _audioCtx = mentalMakeAudioCtx();
     if (opts.onStart) opts.onStart();
     remaining = total; running = true;
     startBtn.style.display = 'none';
@@ -771,7 +810,8 @@ function createSimpleTimer(opts) {
   function finish() {
     if (intervalId) { clearInterval(intervalId); _mentalTimers = _mentalTimers.filter(function(x) { return x !== intervalId; }); }
     running = false;
-    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    mentalPlayAlert(_audioCtx, true);
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
     prog.style.stroke = '#30d158';
     showDone('Completado');
     if (opts.onComplete) opts.onComplete();
@@ -796,16 +836,16 @@ function createSimpleTimer(opts) {
 }
 
 // ─── Timer guiado por fases (Masaje Auricular) ────────────────────────────────
-// opts: { durPerPhase_s, numOrejas, onStart, onComplete }
+// opts: { durPerPhase_s, onStart, onComplete }
 function createMasajeTimer(opts) {
-  var allPhases = [
-    'Oreja izquierda — sentido horario',
-    'Oreja izquierda — sentido antihorario',
-    'Oreja derecha — sentido horario',
-    'Oreja derecha — sentido antihorario'
+  var phases = [
+    'Zona 1 (hueco interior) — sentido horario',
+    'Zona 1 (hueco interior) — sentido antihorario',
+    'Zona 2 (solapa frontal) — sentido horario',
+    'Zona 2 (solapa frontal) — sentido antihorario'
   ];
-  var phases = opts.numOrejas <= 1 ? allPhases.slice(0, 2) : allPhases;
   var totalPhases = phases.length;
+  var _audioCtx = null;
   var phaseIdx = 0, remaining = opts.durPerPhase_s;
   var running = false, intervalId = null;
 
@@ -853,8 +893,17 @@ function createMasajeTimer(opts) {
     phaseIdx++;
     if (phaseIdx >= totalPhases) { finish(); return; }
     remaining = opts.durPerPhase_s;
-    if (navigator.vibrate) navigator.vibrate(200);
-    updateUI();
+    if (phaseIdx === 2) {
+      // Transition to Zone 2
+      mentalPlayAlert(_audioCtx, false);
+      if (navigator.vibrate) navigator.vibrate([300, 100, 300]);
+      nameEl.textContent = '➡ Cambia a Zona 2: solapa frontal';
+      setTimeout(function() { updateUI(); }, 1500);
+    } else {
+      mentalPlayAlert(_audioCtx, false);
+      if (navigator.vibrate) navigator.vibrate(200);
+      updateUI();
+    }
   }
 
   function tick() {
@@ -864,6 +913,7 @@ function createMasajeTimer(opts) {
   }
 
   function start() {
+    _audioCtx = mentalMakeAudioCtx();
     if (opts.onStart) opts.onStart();
     phaseIdx = 0; remaining = opts.durPerPhase_s; running = true;
     startBtn.style.display = 'none';
@@ -907,7 +957,8 @@ function createMasajeTimer(opts) {
   function finish() {
     if (intervalId) { clearInterval(intervalId); _mentalTimers = _mentalTimers.filter(function(x) { return x !== intervalId; }); }
     running = false;
-    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    mentalPlayAlert(_audioCtx, true);
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
     showDone('Sesión completada');
     if (opts.onComplete) opts.onComplete();
   }
@@ -935,93 +986,40 @@ function createMasajeTimer(opts) {
   return wrap;
 }
 
-// ─── Diagrama SVG de la oreja ─────────────────────────────────────────────────
+// ─── Diagrama de la oreja (PNG) ───────────────────────────────────────────────
 function createEarDiagram() {
   var wrap = document.createElement('div');
   wrap.className = 'mental-ear-wrap';
+  wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;margin-bottom:16px;';
 
-  var NS = 'http://www.w3.org/2000/svg';
-  var svg = document.createElementNS(NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 360 320');
-  svg.setAttribute('width',   '200');
-  svg.setAttribute('height',  '178');
-  svg.style.cssText = 'display:block;margin:0 auto;overflow:visible;';
+  var img = document.createElement('img');
+  img.src = 'assets/ear-anatomy.png';
+  img.alt = 'Anatomía de la oreja';
+  img.style.cssText = 'max-width:280px;width:100%;border-radius:12px;margin-bottom:12px;';
 
-  function p(tag, attrs, styleStr) {
-    var e = document.createElementNS(NS, tag);
-    Object.keys(attrs).forEach(function(k) { e.setAttribute(k, String(attrs[k])); });
-    if (styleStr) e.style.cssText = styleStr;
-    return e;
-  }
-  function txt(x, y, content, sz, fw, fill, anchor) {
-    var t = document.createElementNS(NS, 'text');
-    t.setAttribute('x', String(x)); t.setAttribute('y', String(y));
-    t.setAttribute('font-family', '-apple-system,BlinkMacSystemFont,sans-serif');
-    t.setAttribute('font-size', String(sz));
-    t.setAttribute('font-weight', String(fw));
-    t.setAttribute('fill', fill);
-    if (anchor) t.setAttribute('text-anchor', anchor);
-    t.textContent = content;
-    return t;
-  }
+  var legend = document.createElement('div');
+  legend.style.cssText = 'display:flex;flex-direction:column;gap:6px;align-items:flex-start;';
 
-  // Outer helix — main ear outline
-  svg.appendChild(p('path', {
-    d: 'M 172,288 C 138,288 112,270 106,246 C 100,220 110,198 108,172 C 106,144 96,118 98,88 C 100,55 124,16 170,12 C 210,9 244,42 248,82 C 252,118 240,156 238,182 C 236,202 240,218 236,234 C 230,258 212,272 196,278 C 186,282 182,286 182,290 L 172,290 Z'
-  }, 'fill:none;stroke:#8e8e93;stroke-width:2.5;stroke-linejoin:round;'));
+  var z1 = document.createElement('div');
+  z1.style.cssText = 'font-size:13px;color:var(--text-secondary);font-family:-apple-system,sans-serif;display:flex;align-items:center;gap:6px;';
+  var z1dot = document.createElement('span');
+  z1dot.textContent = '●';
+  z1dot.style.color = '#5e5ce6';
+  z1.appendChild(z1dot);
+  z1.appendChild(document.createTextNode('Cymba concha = Zona 1: hueco interior (arriba del canal auditivo)'));
 
-  // Antihelix ridge
-  svg.appendChild(p('path', {
-    d: 'M 156,272 C 148,252 144,230 146,207 C 148,190 156,180 154,162 C 152,145 144,135 146,118 C 149,101 162,94 165,78 C 168,62 166,46 156,38 C 148,31 136,37 134,50'
-  }, 'fill:none;stroke:#555558;stroke-width:2;stroke-linecap:round;'));
+  var z2 = document.createElement('div');
+  z2.style.cssText = 'font-size:13px;color:var(--text-secondary);font-family:-apple-system,sans-serif;display:flex;align-items:center;gap:6px;';
+  var z2dot = document.createElement('span');
+  z2dot.textContent = '●';
+  z2dot.style.color = '#bf5af2';
+  z2.appendChild(z2dot);
+  z2.appendChild(document.createTextNode('Tragus = Zona 2: solapa frontal (cartílago frente al canal)'));
 
-  // Superior crus of antihelix
-  svg.appendChild(p('path', {
-    d: 'M 154,158 C 172,148 192,146 210,153'
-  }, 'fill:none;stroke:#555558;stroke-width:1.5;stroke-linecap:round;'));
-
-  // Crus of helix
-  svg.appendChild(p('path', {
-    d: 'M 166,182 C 184,176 202,176 218,182'
-  }, 'fill:none;stroke:#555558;stroke-width:1.5;stroke-linecap:round;'));
-
-  // Ear canal
-  svg.appendChild(p('ellipse', { cx: 220, cy: 210, rx: 15, ry: 13 },
-    'fill:#0a0a0a;stroke:#636366;stroke-width:1.5;'));
-
-  // Earlobe
-  svg.appendChild(p('path', {
-    d: 'M 156,272 C 150,282 156,292 170,293 C 182,294 188,286 186,278'
-  }, 'fill:rgba(255,255,255,0.03);stroke:#555558;stroke-width:1.5;stroke-linecap:round;'));
-
-  // Zone 1: Cymba concha (upper hollow — above crus of helix)
-  svg.appendChild(p('ellipse', { cx: 200, cy: 118, rx: 24, ry: 21 },
-    'fill:#5e5ce6;fill-opacity:0.28;stroke:#5e5ce6;stroke-width:2;'));
-
-  // Zone 2: Tragus (cartilage protrusion in front of canal)
-  svg.appendChild(p('path', {
-    d: 'M 148,185 C 138,193 136,210 141,220 C 147,230 163,232 172,222 C 178,214 177,200 170,192 C 163,183 155,180 148,185 Z'
-  }, 'fill:#bf5af2;fill-opacity:0.28;stroke:#bf5af2;stroke-width:2;'));
-
-  // Zone 1 connector line + dot
-  svg.appendChild(p('line', { x1: 222, y1: 109, x2: 258, y2: 82 },
-    'stroke:#5e5ce6;stroke-width:1.2;stroke-linecap:round;'));
-  svg.appendChild(p('circle', { cx: 258, cy: 82, r: 2.5 }, 'fill:#5e5ce6;'));
-
-  // Zone 2 connector line + dot
-  svg.appendChild(p('line', { x1: 148, y1: 218, x2: 86, y2: 250 },
-    'stroke:#bf5af2;stroke-width:1.2;stroke-linecap:round;'));
-  svg.appendChild(p('circle', { cx: 86, cy: 250, r: 2.5 }, 'fill:#bf5af2;'));
-
-  // Zone 1 labels (right side)
-  svg.appendChild(txt(264, 80,  'Zona 1',       11, '700', '#5e5ce6',                   'start'));
-  svg.appendChild(txt(264, 94,  'hueco interior', 10, '400', 'rgba(255,255,255,0.40)', 'start'));
-
-  // Zone 2 labels (left side, right-aligned)
-  svg.appendChild(txt(80, 244, 'Zona 2',        11, '700', '#bf5af2',                   'end'));
-  svg.appendChild(txt(80, 258, 'solapa frontal', 10, '400', 'rgba(255,255,255,0.40)',  'end'));
-
-  wrap.appendChild(svg);
+  legend.appendChild(z1);
+  legend.appendChild(z2);
+  wrap.appendChild(img);
+  wrap.appendChild(legend);
   return wrap;
 }
 
@@ -1055,7 +1053,7 @@ function mentalShowCoherencia(container, section, card) {
     ]);
     infoCard.appendChild(guide);
     infoCard.appendChild(mentalMkInnerSep());
-    infoCard.appendChild(createScheduleTag('Mañana (antes del desayuno) · La receptividad vagal es mayor en la mañana; estabiliza la HRV para el resto del día.'));
+    infoCard.appendChild(createScheduleTag('Mañana (antes del desayuno) + Noche (transición al descanso) · La receptividad vagal es mayor en la mañana; la sesión nocturna facilita la transición al sueño.'));
     infoCard.appendChild(mentalMkInnerSep());
     infoCard.appendChild(createInfoToggle('A exactamente 6 respiraciones por minuto (0.1 Hz), tu sistema cardiovascular entra en resonancia: la variabilidad de tu frecuencia cardíaca se maximiza, lo que significa que tu corazón y tu sistema nervioso están sincronizados de forma óptima. Esto reduce cortisol, baja la presión arterial y mejora la atención sostenida. No es relajación genérica: es una frecuencia específica con efectos medibles.'));
     view.appendChild(infoCard);
@@ -1215,7 +1213,6 @@ function mentalShowMasaje(container, section, card) {
     timerCard.className = 'mental-tech-section';
     timerCard.appendChild(createMasajeTimer({
       durPerPhase_s: cfg.masaje_por_direccion_min * 60,
-      numOrejas:     cfg.masaje_orejas,
       onStart: function() { guide._collapse(); }
     }));
     view.appendChild(timerCard);
@@ -1342,68 +1339,88 @@ function mentalShowClasificacion(container, section, card) {
   var view = document.createElement('div'); view.className = 'mental-tech-view';
   var mainCard = document.createElement('div'); mainCard.className = 'mental-tech-section';
 
-  var hdr = document.createElement('div'); hdr.className = 'mental-clas-header';
-  hdr.textContent = 'Organiza tus tareas según dificultad e impacto para elegir la correcta al iniciar una sesión de flow.';
-  mainCard.appendChild(hdr);
-
   var data;
-  try { data = JSON.parse(localStorage.getItem('mental_tareas_clasificacion') || 'null') || {}; }
+  try { data = JSON.parse(localStorage.getItem('mental_tareas_clasificacion2') || 'null') || {}; }
   catch(e) { data = {}; }
 
-  var quads = [
-    { id: 'flow',     label: '🎯 Flow Zone',  color: '#5e5ce6' },
-    { id: 'win',      label: '⚡ Quick Win',   color: '#30d158' },
-    { id: 'profundo', label: '🧠 Profundo',    color: '#0a84ff' },
-    { id: 'defer',    label: '📌 Diferir',     color: '#636366' }
+  var cats = [
+    { id: 'senal', label: '🎯 SEÑAL', desc: 'tareas que producen un resultado real', color: '#5e5ce6' },
+    { id: 'ruido', label: '📢 RUIDO', desc: 'logística, gestión, administración',     color: '#ff9f0a' }
   ];
-  quads.forEach(function(q) { if (!Array.isArray(data[q.id])) data[q.id] = []; });
+  cats.forEach(function(c) { if (!Array.isArray(data[c.id])) data[c.id] = []; });
 
-  function save() { localStorage.setItem('mental_tareas_clasificacion', JSON.stringify(data)); }
+  function save() { localStorage.setItem('mental_tareas_clasificacion2', JSON.stringify(data)); }
 
   var grid = document.createElement('div'); grid.className = 'mental-clas-grid';
-  var quadEls = {};
-  quads.forEach(function(q) {
-    var qEl = document.createElement('div'); qEl.className = 'mental-clas-q';
-    qEl.style.borderTop = '2px solid ' + q.color;
-    var lbl = document.createElement('div'); lbl.className = 'mental-clas-q-label';
-    lbl.style.color = q.color; lbl.textContent = q.label;
+  var catEls = {};
+
+  cats.forEach(function(c) {
+    var col = document.createElement('div');
+    col.className = 'mental-clas-q';
+    col.style.cssText = 'border-top:2px solid ' + c.color + ';display:flex;flex-direction:column;gap:6px;';
+
+    var lbl = document.createElement('div');
+    lbl.className = 'mental-clas-q-label';
+    lbl.style.color = c.color;
+    lbl.textContent = c.label;
+    col.appendChild(lbl);
+
+    var descEl = document.createElement('div');
+    descEl.style.cssText = 'font-size:11px;color:var(--text-tertiary);font-family:-apple-system,sans-serif;margin-bottom:4px;line-height:1.3;';
+    descEl.textContent = '(' + c.desc + ')';
+    col.appendChild(descEl);
+
     var items = document.createElement('div'); items.className = 'mental-clas-q-items';
-    qEl.appendChild(lbl); qEl.appendChild(items);
-    quadEls[q.id] = items;
-    grid.appendChild(qEl);
+    col.appendChild(items);
+    catEls[c.id] = items;
+
+    var addWrap = document.createElement('div');
+    addWrap.style.cssText = 'display:flex;gap:4px;margin-top:4px;';
+    var colInp = document.createElement('input');
+    colInp.type = 'text'; colInp.placeholder = '+ Agregar'; colInp.className = 'mental-clas-inp';
+    colInp.style.cssText = 'flex:1;font-size:13px;padding:6px 8px;min-width:0;';
+    var colAdd = document.createElement('button');
+    colAdd.className = 'mental-clas-addbtn'; colAdd.textContent = '+';
+    colAdd.style.cssText = 'padding:6px 10px;font-size:14px;';
+    (function(cid, inp) {
+      colAdd.addEventListener('click', function() {
+        var val = inp.value.trim(); if (!val) return;
+        data[cid].push(val); save(); renderCat(cid);
+        inp.value = ''; inp.focus();
+      });
+      inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); colAdd.click(); } });
+    }(c.id, colInp));
+    addWrap.appendChild(colInp); addWrap.appendChild(colAdd);
+    col.appendChild(addWrap);
+    grid.appendChild(col);
   });
   mainCard.appendChild(grid);
 
-  function renderQuad(qid) {
-    var el = quadEls[qid]; el.innerHTML = '';
-    (data[qid] || []).forEach(function(task, i) {
+  function renderCat(cid) {
+    var el = catEls[cid]; el.innerHTML = '';
+    (data[cid] || []).forEach(function(task, i) {
       var row = document.createElement('div'); row.className = 'mental-clas-task';
       var txt = document.createElement('span'); txt.className = 'mental-clas-task-txt'; txt.textContent = task;
       var del = document.createElement('button'); del.className = 'mental-clas-task-del'; del.textContent = '×';
       del.addEventListener('click', (function(idx) {
-        return function() { data[qid].splice(idx, 1); save(); renderQuad(qid); };
+        return function() { data[cid].splice(idx, 1); save(); renderCat(cid); };
       }(i)));
       row.appendChild(txt); row.appendChild(del); el.appendChild(row);
     });
   }
-  quads.forEach(function(q) { renderQuad(q.id); });
+  cats.forEach(function(c) { renderCat(c.id); });
 
   mainCard.appendChild(mentalMkInnerSep());
-  var addRow = document.createElement('div'); addRow.className = 'mental-clas-add';
-  var inp = document.createElement('input'); inp.type = 'text'; inp.placeholder = 'Nueva tarea…'; inp.className = 'mental-clas-inp';
-  var sel = document.createElement('select'); sel.className = 'mental-clas-sel';
-  quads.forEach(function(q) {
-    var opt = document.createElement('option'); opt.value = q.id; opt.textContent = q.label; sel.appendChild(opt);
+  var clearBtn = document.createElement('button');
+  clearBtn.style.cssText = 'width:100%;background:none;border:.5px solid rgba(255,69,58,.4);border-radius:var(--radius-lg);color:rgba(255,69,58,.8);font-size:14px;font-weight:600;padding:11px;cursor:pointer;font-family:-apple-system,sans-serif;';
+  clearBtn.textContent = '🗑️ Limpiar todo';
+  clearBtn.addEventListener('click', function() {
+    if (!confirm('¿Limpiar todas las tareas de Señal y Ruido?')) return;
+    cats.forEach(function(c) { data[c.id] = []; });
+    save();
+    cats.forEach(function(c) { renderCat(c.id); });
   });
-  var addBtn = document.createElement('button'); addBtn.className = 'mental-clas-addbtn'; addBtn.textContent = '+';
-  addBtn.addEventListener('click', function() {
-    var val = inp.value.trim(); if (!val) return;
-    data[sel.value].push(val); save(); renderQuad(sel.value);
-    inp.value = ''; inp.focus();
-  });
-  inp.addEventListener('keydown', function(e) { if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); } });
-  addRow.appendChild(inp); addRow.appendChild(sel); addRow.appendChild(addBtn);
-  mainCard.appendChild(addRow);
+  mainCard.appendChild(clearBtn);
   view.appendChild(mainCard);
   container.appendChild(view);
 }
@@ -1473,6 +1490,7 @@ function mentalShowSesionEnfoque(container, section, card) {
 
   function renderEnfoqueTimer(plannedMin) {
     var transitionCancelled = false;
+    var enfoqueAudioCtx = mentalMakeAudioCtx();
     container.innerHTML = '';
     mentalSetHeader(card.label, function() { transitionCancelled = true; renderEnfoqueSetup(); });
 
@@ -1572,7 +1590,10 @@ function mentalShowSesionEnfoque(container, section, card) {
         cierre: null,
         notas: ''
       };
-      if (!stopped && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      if (!stopped) {
+        mentalPlayAlert(enfoqueAudioCtx, true);
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
+      }
       prog.style.stroke = '#30d158';
       ctrlWrap.innerHTML = '';
       var doneEl = document.createElement('div'); doneEl.className = 'mental-metro-done';
@@ -1612,56 +1633,202 @@ function mentalShowProtocoloSalida(container, section, card) {
   mentalShowProtocoloStep1(container, section, card);
 }
 
-// Paso 1 — Captura de distracciones
+// Paso 1 — Sin Dopamina Barata (timer)
 function mentalShowProtocoloStep1(container, section, card) {
+  var cfg = mentalGetConfig();
   container.innerHTML = '';
   mentalSetHeader('Protocolo de Salida', function() { mentalShowSection(container, section); });
   var view = document.createElement('div'); view.className = 'mental-tech-view';
   var mainCard = document.createElement('div'); mainCard.className = 'mental-tech-section';
   mainCard.appendChild(mentalMkProgDots(3, 0));
 
-  var title = document.createElement('div'); title.className = 'mental-proto-title'; title.textContent = 'Captura de Distracciones';
+  var title = document.createElement('div'); title.className = 'mental-proto-title'; title.textContent = 'Sin Dopamina Barata';
   mainCard.appendChild(title);
+
   var sub = document.createElement('div'); sub.className = 'mental-proto-sub';
-  sub.textContent = '¿Qué interrumpió tu enfoque? Escríbelo para registrarlo y vaciarlo de tu cabeza.';
+  sub.textContent = 'No abras redes sociales ni estímulos rápidos por ' + cfg.protocolo_no_dopamina_min + ' minutos. Nada de TikTok, Instagram, YouTube o noticias. Tu cerebro todavía está en un estado elevado de dopamina por logro; si lo inundas con dopamina barata, anulas la recompensa natural.';
   mainCard.appendChild(sub);
 
+  var timerWrap = document.createElement('div'); timerWrap.className = 'mental-tech-section'; timerWrap.style.marginTop = '0';
+  var nextBtn = document.createElement('button'); nextBtn.className = 'mental-flow-next'; nextBtn.textContent = 'Siguiente →'; nextBtn.style.display = 'none';
+
+  var timer = createSimpleTimer({
+    duration_s: cfg.protocolo_no_dopamina_min * 60,
+    onComplete: function() {
+      nextBtn.style.display = '';
+    }
+  });
+  // Show next button on manual stop too — find stop btn and wrap completion
+  timerWrap.appendChild(timer);
+  mainCard.appendChild(timerWrap);
+
+  nextBtn.addEventListener('click', function() { mentalShowProtocoloStep2(container, section, card); });
+  // Also allow skipping
+  var skipLink = document.createElement('div');
+  skipLink.style.cssText = 'text-align:center;margin-top:8px;';
+  var skipA = document.createElement('button');
+  skipA.style.cssText = 'background:none;border:none;color:var(--text-tertiary);font-size:13px;font-family:-apple-system,sans-serif;cursor:pointer;padding:4px;text-decoration:underline;';
+  skipA.textContent = 'Saltar';
+  skipA.addEventListener('click', function() { mentalShowProtocoloStep2(container, section, card); });
+  skipLink.appendChild(skipA);
+  mainCard.appendChild(nextBtn);
+  mainCard.appendChild(skipLink);
+  view.appendChild(mainCard);
+  container.appendChild(view);
+}
+
+// Paso 2 — Wakeful Rest (timer)
+function mentalShowProtocoloStep2(container, section, card) {
+  var cfg = mentalGetConfig();
+  container.innerHTML = '';
+  mentalSetHeader('Protocolo de Salida', function() { mentalShowProtocoloStep1(container, section, card); });
+  var view = document.createElement('div'); view.className = 'mental-tech-view';
+  var mainCard = document.createElement('div'); mainCard.className = 'mental-tech-section';
+  mainCard.appendChild(mentalMkProgDots(3, 1));
+
+  var title = document.createElement('div'); title.className = 'mental-proto-title'; title.textContent = 'Wakeful Rest';
+  mainCard.appendChild(title);
+
+  var sub = document.createElement('div'); sub.className = 'mental-proto-sub';
+  sub.textContent = 'Siéntate en silencio y deja que tu mente repase lo que acabas de hacer. No fuerces nada: simplemente deja que los pensamientos fluyan sobre el trabajo que completaste.';
+  mainCard.appendChild(sub);
+
+  mainCard.appendChild(createInfoToggle('El wakeful rest post-tarea potencia la consolidación de memoria: tu cerebro reprocesa y almacena lo que acabas de aprender. Los períodos de descanso inmediatamente después del aprendizaje son casi tan importantes como el aprendizaje mismo.'));
+  mainCard.appendChild(mentalMkInnerSep());
+
+  var timerWrap = document.createElement('div'); timerWrap.style.marginTop = '0';
+  var nextBtn = document.createElement('button'); nextBtn.className = 'mental-flow-next'; nextBtn.textContent = 'Siguiente →'; nextBtn.style.display = 'none';
+
+  var timer = createSimpleTimer({
+    duration_s: cfg.protocolo_wakeful_rest_min * 60,
+    onComplete: function() {
+      nextBtn.style.display = '';
+    }
+  });
+  timerWrap.appendChild(timer);
+  mainCard.appendChild(timerWrap);
+
+  nextBtn.addEventListener('click', function() { mentalShowProtocoloStep3(container, section, card); });
+  var skipLink = document.createElement('div');
+  skipLink.style.cssText = 'text-align:center;margin-top:8px;';
+  var skipA = document.createElement('button');
+  skipA.style.cssText = 'background:none;border:none;color:var(--text-tertiary);font-size:13px;font-family:-apple-system,sans-serif;cursor:pointer;padding:4px;text-decoration:underline;';
+  skipA.textContent = 'Saltar';
+  skipA.addEventListener('click', function() { mentalShowProtocoloStep3(container, section, card); });
+  skipLink.appendChild(skipA);
+  mainCard.appendChild(nextBtn);
+  mainCard.appendChild(skipLink);
+  view.appendChild(mainCard);
+  container.appendChild(view);
+}
+
+// Paso 3 — Registro GST (distracciones + enfoque + resultado + notas + guardar)
+function mentalShowProtocoloStep3(container, section, card) {
+  container.innerHTML = '';
+  mentalSetHeader('Protocolo de Salida', function() { mentalShowProtocoloStep2(container, section, card); });
+  var view = document.createElement('div'); view.className = 'mental-tech-view';
+  var mainCard = document.createElement('div'); mainCard.className = 'mental-tech-section';
+  mainCard.appendChild(mentalMkProgDots(3, 2));
+
+  var title = document.createElement('div'); title.className = 'mental-proto-title'; title.textContent = 'Registro GST';
+  mainCard.appendChild(title);
+
+  var s = _mentalFlowSessionData;
+
+  // Session summary (if we have timing data)
+  if (s.duracion_real_s !== null) {
+    var sumLbl = document.createElement('div'); sumLbl.className = 'mental-flow-sec-lbl'; sumLbl.textContent = 'Resumen';
+    mainCard.appendChild(sumLbl);
+    var sumEl = document.createElement('div'); sumEl.className = 'mental-ses-sum';
+    function addLine(text) { var d = document.createElement('div'); d.textContent = text; sumEl.appendChild(d); }
+    if (s.hora_inicio) addLine('⏱ ' + s.hora_inicio + ' → ' + s.hora_fin);
+    var rS = s.duracion_real_s, rM = Math.floor(rS / 60), rSec = rS % 60;
+    addLine('📋 Planeado: ' + (s.duracion_planeada_min || '?') + ' min  ·  Real: ' + rM + ':' + (rSec < 10 ? '0' : '') + rSec);
+    mainCard.appendChild(sumEl);
+    mainCard.appendChild(mentalMkInnerSep());
+  }
+
+  // Enfoque slider (1-5)
+  var rLbl = document.createElement('div'); rLbl.className = 'mental-flow-sec-lbl';
+  rLbl.textContent = 'Nivel de enfoque (1 = muy disperso · 5 = flow total)';
+  mainCard.appendChild(rLbl);
+  var ratingRow = document.createElement('div'); ratingRow.className = 'mental-rating-row';
+  var selRating = s.rating || null;
+  var rBtns = [];
+  for (var r = 1; r <= 5; r++) {
+    (function(val) {
+      var btn = document.createElement('button');
+      btn.className = 'mental-rating-btn' + (selRating === val ? ' sel' : '');
+      btn.textContent = String(val);
+      btn.addEventListener('click', function() {
+        selRating = val; s.rating = val;
+        rBtns.forEach(function(b, i) { if (i + 1 === val) b.classList.add('sel'); else b.classList.remove('sel'); });
+      });
+      ratingRow.appendChild(btn); rBtns.push(btn);
+    }(r));
+  }
+  mainCard.appendChild(ratingRow);
+  mainCard.appendChild(mentalMkInnerSep());
+
+  // Resultado
+  var cLbl = document.createElement('div'); cLbl.className = 'mental-flow-sec-lbl'; cLbl.textContent = '¿Cómo termina esta sesión?';
+  mainCard.appendChild(cLbl);
+  var radioOpts = [
+    { id: 'satisfecho',   label: '✅ Satisfecho — Completé lo que me propuse'     },
+    { id: 'incompleto',   label: '🔄 Incompleto — Quedó trabajo pendiente'       },
+    { id: 'interrumpido', label: '⚠️ Interrumpido — Algo externo cortó la sesión' }
+  ];
+  var radioGrp = document.createElement('div'); radioGrp.className = 'mental-radio-grp';
+  var selCierre = s.cierre || null;
+  var rdots = {};
+  radioOpts.forEach(function(opt) {
+    var row = document.createElement('div'); row.className = 'mental-radio-row';
+    var dot = document.createElement('div'); dot.className = 'mental-radio-dot' + (selCierre === opt.id ? ' sel' : '');
+    var lblEl = document.createElement('div'); lblEl.className = 'mental-radio-lbl'; lblEl.textContent = opt.label;
+    rdots[opt.id] = dot;
+    row.appendChild(dot); row.appendChild(lblEl);
+    row.addEventListener('click', (function(oid) {
+      return function() {
+        selCierre = oid; s.cierre = oid;
+        Object.keys(rdots).forEach(function(k) { if (k === oid) rdots[k].classList.add('sel'); else rdots[k].classList.remove('sel'); });
+      };
+    }(opt.id)));
+    radioGrp.appendChild(row);
+  });
+  mainCard.appendChild(radioGrp);
+  mainCard.appendChild(mentalMkInnerSep());
+
+  // Distracciones con autocomplete
+  var dLbl = document.createElement('div'); dLbl.className = 'mental-flow-sec-lbl'; dLbl.textContent = 'Distracciones';
+  mainCard.appendChild(dLbl);
   var catalog = [];
   dbGetAll('flow_distraccion_catalogo').then(function(rows) { catalog = rows || []; }).catch(function() {});
-
   var chipsEl = document.createElement('div'); chipsEl.className = 'mental-chips';
   mainCard.appendChild(chipsEl);
-
   function renderChips() {
     chipsEl.innerHTML = '';
-    (_mentalFlowSessionData.distracciones || []).forEach(function(d, i) {
+    (s.distracciones || []).forEach(function(d, i) {
       var chip = document.createElement('span'); chip.className = 'mental-chip';
       var txt = document.createTextNode(d);
       var x = document.createElement('button'); x.className = 'mental-chip-x'; x.textContent = '×';
       x.addEventListener('click', (function(idx) {
-        return function() { _mentalFlowSessionData.distracciones.splice(idx, 1); renderChips(); };
+        return function() { s.distracciones.splice(idx, 1); renderChips(); };
       }(i)));
-      chip.appendChild(txt); chip.appendChild(x);
-      chipsEl.appendChild(chip);
+      chip.appendChild(txt); chip.appendChild(x); chipsEl.appendChild(chip);
     });
   }
   renderChips();
-
   var acWrap = document.createElement('div'); acWrap.className = 'mental-ac-wrap';
   var acInp = document.createElement('input'); acInp.type = 'text'; acInp.placeholder = 'Añadir distracción…'; acInp.className = 'mental-ac-inp';
   var acDrop = document.createElement('div'); acDrop.className = 'mental-ac-drop'; acDrop.style.display = 'none';
   acWrap.appendChild(acInp); acWrap.appendChild(acDrop);
   mainCard.appendChild(acWrap);
-
   function addDistraccion(name) {
     var val = name.trim(); if (!val) return;
-    if (!_mentalFlowSessionData.distracciones) _mentalFlowSessionData.distracciones = [];
-    if (_mentalFlowSessionData.distracciones.indexOf(val) === -1) {
-      _mentalFlowSessionData.distracciones.push(val); renderChips();
-    }
+    if (!s.distracciones) s.distracciones = [];
+    if (s.distracciones.indexOf(val) === -1) { s.distracciones.push(val); renderChips(); }
     acInp.value = ''; acDrop.style.display = 'none';
   }
-
   acInp.addEventListener('input', function() {
     var q = acInp.value.trim().toLowerCase();
     acDrop.innerHTML = ''; acDrop.style.display = 'none';
@@ -1685,109 +1852,9 @@ function mentalShowProtocoloStep1(container, section, card) {
   });
   acInp.addEventListener('blur', function() { setTimeout(function() { acDrop.style.display = 'none'; }, 150); });
 
-  var nextBtn = document.createElement('button'); nextBtn.className = 'mental-flow-next';
-  nextBtn.textContent = 'Siguiente →';
-  nextBtn.addEventListener('click', function() { mentalShowProtocoloStep2(container, section, card); });
-  mainCard.appendChild(nextBtn);
-  view.appendChild(mainCard);
-  container.appendChild(view);
-}
-
-// Paso 2 — Evaluación
-function mentalShowProtocoloStep2(container, section, card) {
-  container.innerHTML = '';
-  mentalSetHeader('Protocolo de Salida', function() { mentalShowProtocoloStep1(container, section, card); });
-  var view = document.createElement('div'); view.className = 'mental-tech-view';
-  var mainCard = document.createElement('div'); mainCard.className = 'mental-tech-section';
-  mainCard.appendChild(mentalMkProgDots(3, 1));
-
-  var title = document.createElement('div'); title.className = 'mental-proto-title'; title.textContent = 'Evaluación de la Sesión';
-  mainCard.appendChild(title);
-
-  var rLbl = document.createElement('div'); rLbl.className = 'mental-flow-sec-lbl';
-  rLbl.textContent = '¿Qué tan enfocado estuviste? (1 = muy disperso · 5 = flow total)';
-  mainCard.appendChild(rLbl);
-
-  var ratingRow = document.createElement('div'); ratingRow.className = 'mental-rating-row';
-  var selRating = _mentalFlowSessionData.rating || null;
-  var rBtns = [];
-  for (var r = 1; r <= 5; r++) {
-    (function(val) {
-      var btn = document.createElement('button');
-      btn.className = 'mental-rating-btn' + (selRating === val ? ' sel' : '');
-      btn.textContent = String(val);
-      btn.addEventListener('click', function() {
-        selRating = val; _mentalFlowSessionData.rating = val;
-        rBtns.forEach(function(b, i) { if (i + 1 === val) b.classList.add('sel'); else b.classList.remove('sel'); });
-      });
-      ratingRow.appendChild(btn); rBtns.push(btn);
-    }(r));
-  }
-  mainCard.appendChild(ratingRow);
   mainCard.appendChild(mentalMkInnerSep());
 
-  var cLbl = document.createElement('div'); cLbl.className = 'mental-flow-sec-lbl'; cLbl.textContent = '¿Cómo termina esta sesión?';
-  mainCard.appendChild(cLbl);
-
-  var radioOpts = [
-    { id: 'satisfecho',   label: '✅ Satisfecho — Completé lo que me propuse'     },
-    { id: 'incompleto',   label: '🔄 Incompleto — Quedó trabajo pendiente'       },
-    { id: 'interrumpido', label: '⚠️ Interrumpido — Algo externo cortó la sesión' }
-  ];
-  var radioGrp = document.createElement('div'); radioGrp.className = 'mental-radio-grp';
-  var selCierre = _mentalFlowSessionData.cierre || null;
-  var rdots = {};
-  radioOpts.forEach(function(opt) {
-    var row = document.createElement('div'); row.className = 'mental-radio-row';
-    var dot = document.createElement('div'); dot.className = 'mental-radio-dot' + (selCierre === opt.id ? ' sel' : '');
-    var lbl = document.createElement('div'); lbl.className = 'mental-radio-lbl'; lbl.textContent = opt.label;
-    rdots[opt.id] = dot;
-    row.appendChild(dot); row.appendChild(lbl);
-    row.addEventListener('click', (function(oid) {
-      return function() {
-        selCierre = oid; _mentalFlowSessionData.cierre = oid;
-        Object.keys(rdots).forEach(function(k) { if (k === oid) rdots[k].classList.add('sel'); else rdots[k].classList.remove('sel'); });
-      };
-    }(opt.id)));
-    radioGrp.appendChild(row);
-  });
-  mainCard.appendChild(radioGrp);
-
-  var nextBtn = document.createElement('button'); nextBtn.className = 'mental-flow-next';
-  nextBtn.textContent = 'Siguiente →';
-  nextBtn.addEventListener('click', function() { mentalShowProtocoloStep3(container, section, card); });
-  mainCard.appendChild(nextBtn);
-  view.appendChild(mainCard);
-  container.appendChild(view);
-}
-
-// Paso 3 — Notas y guardar
-function mentalShowProtocoloStep3(container, section, card) {
-  container.innerHTML = '';
-  mentalSetHeader('Protocolo de Salida', function() { mentalShowProtocoloStep2(container, section, card); });
-  var view = document.createElement('div'); view.className = 'mental-tech-view';
-  var mainCard = document.createElement('div'); mainCard.className = 'mental-tech-section';
-  mainCard.appendChild(mentalMkProgDots(3, 2));
-
-  var title = document.createElement('div'); title.className = 'mental-proto-title'; title.textContent = 'Notas y Guardar';
-  mainCard.appendChild(title);
-
-  var s = _mentalFlowSessionData;
-  if (s.duracion_real_s !== null) {
-    var sumLbl = document.createElement('div'); sumLbl.className = 'mental-flow-sec-lbl'; sumLbl.textContent = 'Resumen';
-    mainCard.appendChild(sumLbl);
-    var sumEl = document.createElement('div'); sumEl.className = 'mental-ses-sum';
-    function addLine(text) { var d = document.createElement('div'); d.textContent = text; sumEl.appendChild(d); }
-    if (s.hora_inicio) addLine('⏱ ' + s.hora_inicio + ' → ' + s.hora_fin);
-    var rS = s.duracion_real_s, rM = Math.floor(rS / 60), rSec = rS % 60;
-    addLine('📋 Planeado: ' + (s.duracion_planeada_min || '?') + ' min  ·  Real: ' + rM + ':' + (rSec < 10 ? '0' : '') + rSec);
-    if (s.rating) addLine('⭐ Enfoque: ' + s.rating + ' / 5');
-    if (s.cierre) addLine('🏷 Cierre: ' + s.cierre);
-    if ((s.distracciones || []).length) addLine('💭 Distracciones: ' + s.distracciones.join(', '));
-    mainCard.appendChild(sumEl);
-    mainCard.appendChild(mentalMkInnerSep());
-  }
-
+  // Notas
   var nLbl = document.createElement('div'); nLbl.className = 'mental-flow-sec-lbl'; nLbl.textContent = 'Notas (opcional)';
   mainCard.appendChild(nLbl);
   var notesInp = document.createElement('textarea'); notesInp.className = 'mental-notes-inp';
@@ -1795,23 +1862,24 @@ function mentalShowProtocoloStep3(container, section, card) {
   notesInp.value = s.notas || '';
   mainCard.appendChild(notesInp);
 
+  // Guardar
   var saveBtn = document.createElement('button'); saveBtn.className = 'mental-flow-save'; saveBtn.textContent = 'Guardar Sesión';
   saveBtn.addEventListener('click', function() {
     saveBtn.disabled = true; saveBtn.textContent = 'Guardando…';
-    _mentalFlowSessionData.notas = notesInp.value.trim();
+    s.notas = notesInp.value.trim();
     var n2 = new Date();
     var sessionRecord = {
-      fecha:                 _mentalFlowSessionData.fecha,
-      hora_inicio:           _mentalFlowSessionData.hora_inicio  || null,
-      hora_fin:              _mentalFlowSessionData.hora_fin      || n2.toTimeString().slice(0, 5),
-      duracion_planeada_min: _mentalFlowSessionData.duracion_planeada_min || null,
-      duracion_real_s:       _mentalFlowSessionData.duracion_real_s       || null,
-      rating:                _mentalFlowSessionData.rating  || null,
-      cierre:                _mentalFlowSessionData.cierre  || null,
-      notas:                 _mentalFlowSessionData.notas
+      fecha:                 s.fecha,
+      hora_inicio:           s.hora_inicio  || null,
+      hora_fin:              s.hora_fin      || n2.toTimeString().slice(0, 5),
+      duracion_planeada_min: s.duracion_planeada_min || null,
+      duracion_real_s:       s.duracion_real_s       || null,
+      rating:                s.rating  || null,
+      cierre:                s.cierre  || null,
+      notas:                 s.notas
     };
-    var today        = _mentalFlowSessionData.fecha;
-    var distracciones = (_mentalFlowSessionData.distracciones || []).slice();
+    var today         = s.fecha;
+    var distracciones = (s.distracciones || []).slice();
     dbPut('flow_sessions', sessionRecord).then(function(sesionId) {
       return dbGetAll('flow_distraccion_catalogo').then(function(catalog) {
         return mentalProcesarDistracciones(catalog || [], distracciones, sesionId, today, 0);
