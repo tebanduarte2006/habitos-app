@@ -5,9 +5,16 @@ var _gymSession          = null;   // objeto sesión activa
 var _gymSessionExercises = [];     // [{ ejercicio: {...}, sets: [...] }]
 var _gymTimerInterval    = null;   // setInterval del cronómetro
 var _gymPanel            = null;   // panel raíz del tab "Iniciar Rutina"
+var _gymSessionCheckDone = false;  // flag: evita re-disparar modal al cambiar tabs
 
 // ─── Punto de entrada ──────────────────────────────────────────────────────────
 function renderGymModule(container) {
+  // Resetear estado al entrar al módulo desde fuera
+  _gymSessionCheckDone = false;
+  _gymSession          = null;
+  _gymSessionExercises = [];
+  if (_gymTimerInterval) { clearInterval(_gymTimerInterval); _gymTimerInterval = null; }
+
   var tabBar     = createElement('div', { class: 'main-tabs' });
   var tabContent = createElement('div', {});
   container.appendChild(tabBar);
@@ -62,6 +69,19 @@ function renderIniciarTab(panel) {
   panel.innerHTML = '';
   if (_gymTimerInterval) { clearInterval(_gymTimerInterval); _gymTimerInterval = null; }
 
+  // Si hay sesión activa en memoria, reanudar directamente sin tocar la BD
+  if (_gymSession) {
+    showActiveSession(panel, _gymSession);
+    return;
+  }
+
+  // Verificar sesión sin finalizar solo una vez por visita al módulo
+  if (_gymSessionCheckDone) {
+    showStartScreen(panel);
+    return;
+  }
+  _gymSessionCheckDone = true;
+
   dbGetAll('sesiones').then(function(sesiones) {
     var activa = null;
     for (var i = 0; i < sesiones.length; i++) {
@@ -83,6 +103,36 @@ function showModalSesionActiva(sesion, panel) {
 
   modal.appendChild(createElement('div', { class: 'gym-modal-title' }, ['Sesión sin terminar']));
   modal.appendChild(createElement('div', { style: 'color:var(--t2);font-size:15px;margin-bottom:4px;' }, ['"' + sesion.nombre + '"']));
+
+  // ── Opción 0: Reanudar rutina ──
+  var resumeBtn = createElement('button', { class: 'gym-btn-primary' }, ['Reanudar rutina']);
+  resumeBtn.addEventListener('click', function() {
+    overlay.remove();
+    Promise.all([dbGetAll('sets'), dbGetAll('ejercicios')]).then(function(results) {
+      var allSets = results[0];
+      var allEjs  = results[1];
+      var ejMap = {};
+      allEjs.forEach(function(e) { ejMap[e.id] = e; });
+      var sesionSets = allSets.filter(function(s) { return s.sesion_id === sesion.id; });
+      var grouped = {};
+      var ejOrder = [];
+      sesionSets.forEach(function(s) {
+        if (!grouped[s.ejercicio_id]) { grouped[s.ejercicio_id] = []; ejOrder.push(s.ejercicio_id); }
+        grouped[s.ejercicio_id].push(s);
+      });
+      var seen = {};
+      var ejIds = [];
+      ejOrder.forEach(function(id) { if (!seen[id]) { seen[id] = true; ejIds.push(id); } });
+      _gymSession = sesion;
+      _gymSessionExercises = ejIds.map(function(ejId) {
+        var sets = grouped[ejId].slice();
+        sets.sort(function(a, b) { return (a.orden || 0) - (b.orden || 0); });
+        return { ejercicio: ejMap[parseInt(ejId, 10)] || { id: parseInt(ejId, 10), nombre: 'Ejercicio' }, sets: sets };
+      });
+      showActiveSession(panel, sesion);
+    });
+  });
+  modal.appendChild(resumeBtn);
 
   // ── Opción 1: ¿A qué hora terminaste? ──
   modal.appendChild(createElement('div', { style: 'color:var(--t3);font-size:13px;margin-top:8px;' }, ['¿A qué hora terminaste?']));
