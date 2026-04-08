@@ -287,6 +287,37 @@ function showActiveSession(panel, sesion) {
   actionsRow.appendChild(finishBtn);
   panel.appendChild(actionsRow);
 
+  // — Sección Cardio —
+  var cardioSection = createElement('div', { style: 'padding:0 20px;margin-top:16px;' });
+
+  var cardioDivider = createElement('div', { style: 'display:flex;align-items:center;gap:12px;margin-bottom:12px;' });
+  cardioDivider.appendChild(createElement('div', { style: 'flex:1;height:1px;background:var(--sep2);' }));
+  cardioDivider.appendChild(createElement('span', { style: 'color:var(--t3);font-size:12px;text-transform:uppercase;letter-spacing:0.5px;' }, ['Cardio']));
+  cardioDivider.appendChild(createElement('div', { style: 'flex:1;height:1px;background:var(--sep2);' }));
+  cardioSection.appendChild(cardioDivider);
+
+  var cardioRegistrosList = createElement('div', { id: 'gym-session-cardio-list' });
+  cardioSection.appendChild(cardioRegistrosList);
+
+  var addCardioBtn = createElement('button', { class: 'gym-btn-secondary', style: 'margin-top:4px;' }, ['+ Agregar cardio']);
+
+  function reloadCardioList() {
+    cardioRegistrosList.innerHTML = '';
+    dbGetAll('cardio_registros').then(function(todos) {
+      var registros = todos.filter(function(r) { return r.sesion_id === sesion.id; });
+      registros.forEach(function(r) {
+        cardioRegistrosList.appendChild(buildCardioRegistroRow(r, reloadCardioList));
+      });
+    });
+  }
+  reloadCardioList();
+
+  addCardioBtn.addEventListener('click', function() {
+    showAddCardioFlow(cardioSection, addCardioBtn, sesion, reloadCardioList);
+  });
+  cardioSection.appendChild(addCardioBtn);
+
+  panel.appendChild(cardioSection);
   panel.appendChild(createElement('div', { style: 'height:80px;' }));
 }
 
@@ -317,7 +348,26 @@ function toggleNoteArea(actionsRow, sesion) {
 function buildExerciseCard(exData, sesion) {
   var card = createElement('div', { class: 'gym-exercise-card' });
 
-  card.appendChild(createElement('div', { class: 'gym-exercise-name' }, [exData.ejercicio.nombre]));
+  var cardHeader = createElement('div', { style: 'display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;' });
+  cardHeader.appendChild(createElement('div', { class: 'gym-exercise-name', style: 'margin-bottom:0;' }, [exData.ejercicio.nombre]));
+
+  var delExBtn = createElement('button', { class: 'gym-set-delete', style: 'font-size:14px;flex-shrink:0;' }, ['🗑']);
+  delExBtn.addEventListener('click', function() {
+    var nSets = exData.sets.length;
+    var msg = '¿Eliminar ' + exData.ejercicio.nombre + ' y sus ' + nSets + ' set' + (nSets !== 1 ? 's' : '') + ' de esta sesión?';
+    gymShowConfirmModal('¿Eliminar ' + exData.ejercicio.nombre + '?', msg, function() {
+      var promises = exData.sets.map(function(s) { return dbDelete('sets', s.id); });
+      Promise.all(promises).then(function() {
+        var idx = _gymSessionExercises.indexOf(exData);
+        if (idx >= 0) _gymSessionExercises.splice(idx, 1);
+        card.style.transition = 'opacity 0.15s';
+        card.style.opacity = '0';
+        setTimeout(function() { card.remove(); }, 150);
+      });
+    });
+  });
+  cardHeader.appendChild(delExBtn);
+  card.appendChild(cardHeader);
 
   var setsList = createElement('div', { class: 'gym-sets-list' });
   card.appendChild(setsList);
@@ -348,8 +398,9 @@ function buildSetRow(set, orden, setsList, exData) {
     dbDelete('sets', set.id).then(function() {
       var idx = exData.sets.indexOf(set);
       if (idx >= 0) exData.sets.splice(idx, 1);
-      row.remove();
-      renumberSets(setsList);
+      row.style.transition = 'opacity 0.15s';
+      row.style.opacity = '0';
+      setTimeout(function() { row.remove(); renumberSets(setsList); }, 150);
     });
   });
 
@@ -656,6 +707,23 @@ function showSummaryScreen(panel, sesion) {
     screen.appendChild(exDiv);
   });
 
+  // — Cardio registros en resumen —
+  var cardioSummaryWrap = createElement('div', { style: 'margin-top:16px;' });
+  screen.appendChild(cardioSummaryWrap);
+  dbGetAll('cardio_registros').then(function(todos) {
+    var registros = todos.filter(function(r) { return r.sesion_id === sesion.id; });
+    if (registros.length === 0) return;
+    cardioSummaryWrap.appendChild(createElement('div', { class: 'gym-summary-exercise-name', style: 'margin-top:8px;' }, ['Cardio']));
+    registros.forEach(function(r) {
+      var texto = (r.tipo_nombre || 'Cardio') + ' — ' + r.tiempo_min + ' min';
+      if (r.valores) {
+        var parts = Object.keys(r.valores).filter(function(k) { return r.valores[k] != null; });
+        if (parts.length > 0) texto += ' — ' + parts.map(function(k) { return k + ': ' + r.valores[k]; }).join(', ');
+      }
+      cardioSummaryWrap.appendChild(createElement('div', { class: 'gym-summary-set' }, [texto]));
+    });
+  });
+
   var backBtn = createElement('button', { class: 'gym-btn-primary', style: 'margin-top:24px;' }, ['Volver al inicio']);
   backBtn.addEventListener('click', function() {
     _gymSession          = null;
@@ -912,7 +980,45 @@ function renderDirectorio(panel) {
 
   var listEl = createElement('div', { class: 'gym-dir-list' });
   panel.appendChild(listEl);
+
+  // — Sección Cardio —
+  var cardioDirHeader = createElement('div', { style: 'padding:24px 20px 8px;' });
+  cardioDirHeader.appendChild(createElement('div', { class: 'title-section', style: 'padding:0 0 4px;' }, ['Cardio']));
+  panel.appendChild(cardioDirHeader);
+
+  var cardioTiposList = createElement('div', { style: 'padding:0 20px;' });
+  panel.appendChild(cardioTiposList);
+
+  var newCardioTipoBtn = createElement('button', { class: 'gym-btn-secondary', style: 'margin:8px 20px 0;display:block;' }, ['+ Nuevo tipo de cardio']);
+  newCardioTipoBtn.addEventListener('click', function() { showNuevoTipoCardioForm(panel, renderCardioTiposList); });
+  panel.appendChild(newCardioTipoBtn);
+
   panel.appendChild(createElement('div', { style: 'height:80px;' }));
+
+  function renderCardioTiposList() {
+    cardioTiposList.innerHTML = '';
+    dbGetAll('cardio_tipos').then(function(tipos) {
+      if (tipos.length === 0) {
+        cardioTiposList.appendChild(createElement('div', {
+          style: 'color:var(--t3);font-size:14px;padding:8px 0;'
+        }, ['Sin tipos de cardio']));
+        return;
+      }
+      tipos.forEach(function(tipo) {
+        var item = createElement('div', { class: 'gym-dir-item' });
+        item.appendChild(createElement('div', { class: 'gym-dir-item-name' }, [tipo.nombre]));
+        var sub  = createElement('div', { class: 'gym-dir-item-sub' });
+        var params = tipo.parametros && tipo.parametros.length > 0
+          ? tipo.parametros.map(function(p) { return p.nombre; }).join(', ')
+          : 'Solo tiempo';
+        sub.appendChild(createElement('span', { style: 'color:var(--t2);' }, [params]));
+        item.appendChild(sub);
+        item.addEventListener('click', function() { showCardioTipoDetalle(panel, tipo); });
+        cardioTiposList.appendChild(item);
+      });
+    });
+  }
+  renderCardioTiposList();
 
   searchInput.addEventListener('input', function() {
     _gymDirSearchQuery = searchInput.value;
@@ -982,8 +1088,98 @@ function showEjercicioDetalle(panel, ej) {
   var backBtn = createElement('button', { class: 'gym-dir-back-btn' }, ['‹ Directorio']);
   backBtn.addEventListener('click', function() { renderDirectorio(panel); });
   header.appendChild(backBtn);
-  header.appendChild(createElement('div', { class: 'gym-dir-detail-title' }, [ej.nombre]));
-  header.appendChild(createElement('div', { class: 'gym-dir-detail-muscle' }, [gymMusculoStr(ej.musculo_primario)]));
+
+  // — Nombre editable —
+  var nameRow = createElement('div', { style: 'display:flex;align-items:center;gap:8px;' });
+  var nameEl  = createElement('div', { class: 'gym-dir-detail-title', style: 'flex:1;margin-bottom:0;' }, [ej.nombre]);
+  var nameEditBtn = createElement('button', { style: 'background:none;border:none;cursor:pointer;font-size:16px;padding:4px;flex-shrink:0;' }, ['✏️']);
+  nameEditBtn.addEventListener('click', function() {
+    if (nameRow.querySelector('input')) return;
+    var inp = createElement('input', { type: 'text', class: 'gym-session-name-input', style: 'flex:1;margin-bottom:0;' });
+    inp.value = ej.nombre;
+    var saveBtn2 = createElement('button', { class: 'gym-btn-primary', style: 'padding:6px 12px;font-size:13px;' }, ['Guardar']);
+    var cancelBtn2 = createElement('button', { class: 'gym-btn-secondary', style: 'padding:6px 12px;font-size:13px;' }, ['Cancelar']);
+    saveBtn2.addEventListener('click', function() {
+      var nuevo = inp.value.trim();
+      if (!nuevo) { showToast('El nombre no puede estar vacío'); return; }
+      ej.nombre = nuevo;
+      dbPut('ejercicios', ej).then(function() {
+        nameEl.textContent = nuevo;
+        nameRow.innerHTML = '';
+        nameRow.appendChild(nameEl);
+        nameRow.appendChild(nameEditBtn);
+        showToast('Nombre actualizado');
+      });
+    });
+    cancelBtn2.addEventListener('click', function() {
+      nameRow.innerHTML = '';
+      nameRow.appendChild(nameEl);
+      nameRow.appendChild(nameEditBtn);
+    });
+    nameRow.innerHTML = '';
+    nameRow.appendChild(inp);
+    nameRow.appendChild(saveBtn2);
+    nameRow.appendChild(cancelBtn2);
+    inp.focus();
+  });
+  nameRow.appendChild(nameEl);
+  nameRow.appendChild(nameEditBtn);
+  header.appendChild(nameRow);
+
+  // — Músculos editables —
+  var muscleRow = createElement('div', { style: 'display:flex;align-items:center;gap:8px;margin-top:4px;' });
+  var muscleEl  = createElement('div', { class: 'gym-dir-detail-muscle', style: 'flex:1;margin-bottom:0;' }, [gymMusculoStr(ej.musculo_primario)]);
+  var muscleEditBtn = createElement('button', { style: 'background:none;border:none;cursor:pointer;font-size:14px;padding:4px;flex-shrink:0;' }, ['✏️']);
+  muscleEditBtn.addEventListener('click', function() {
+    var existing = document.getElementById('gym-muscle-edit-panel');
+    if (existing) { existing.remove(); return; }
+    var allMusculos = ['Pecho','Espalda','Hombros','Bíceps','Tríceps','Antebrazos',
+      'Cuádriceps','Isquiotibiales','Glúteos','Aductor','Abductor','Abdominales','Gemelos','Trapecios'];
+    var currentArr = [];
+    try { currentArr = JSON.parse(ej.musculo_primario); } catch(e) {}
+    if (!Array.isArray(currentArr)) currentArr = ej.musculo_primario ? [ej.musculo_primario] : [];
+    var selected = {};
+    currentArr.forEach(function(m) { selected[m] = true; });
+    var editPanel = createElement('div', {
+      id: 'gym-muscle-edit-panel',
+      style: 'padding:16px 20px;background:var(--bg2);margin-top:0;'
+    });
+    editPanel.appendChild(createElement('div', { style: 'color:var(--t2);font-size:13px;margin-bottom:8px;' }, ['Selecciona músculos:']));
+    var grid = createElement('div', { class: 'gym-muscle-grid' });
+    allMusculos.forEach(function(m) {
+      var lbl = createElement('label', { class: 'gym-muscle-checkbox-label' + (selected[m] ? ' selected' : '') });
+      var cb  = createElement('input', { type: 'checkbox' });
+      cb.checked = !!selected[m];
+      cb.addEventListener('change', function() {
+        if (cb.checked) { selected[m] = true; lbl.classList.add('selected'); }
+        else            { delete selected[m]; lbl.classList.remove('selected'); }
+      });
+      lbl.appendChild(cb);
+      lbl.appendChild(document.createTextNode(' ' + m));
+      grid.appendChild(lbl);
+    });
+    editPanel.appendChild(grid);
+    var mSaveBtn = createElement('button', { class: 'gym-btn-primary', style: 'margin-top:12px;' }, ['Guardar']);
+    var mCancelBtn = createElement('button', { class: 'gym-btn-secondary' }, ['Cancelar']);
+    mSaveBtn.addEventListener('click', function() {
+      var arr = allMusculos.filter(function(m) { return selected[m]; });
+      if (arr.length === 0) { showToast('Selecciona al menos un músculo'); return; }
+      ej.musculo_primario = JSON.stringify(arr);
+      dbPut('ejercicios', ej).then(function() {
+        muscleEl.textContent = gymMusculoStr(ej.musculo_primario);
+        editPanel.remove();
+        showToast('Músculos actualizados');
+      });
+    });
+    mCancelBtn.addEventListener('click', function() { editPanel.remove(); });
+    editPanel.appendChild(mSaveBtn);
+    editPanel.appendChild(mCancelBtn);
+    header.parentNode.insertBefore(editPanel, header.nextSibling);
+  });
+  muscleRow.appendChild(muscleEl);
+  muscleRow.appendChild(muscleEditBtn);
+  header.appendChild(muscleRow);
+
   panel.appendChild(header);
 
   var ranges   = ['1M', '3M', '6M', '1A', 'Todo'];
@@ -1026,6 +1222,30 @@ function showEjercicioDetalle(panel, ej) {
   var tableEl = createElement('div', { id: 'gym-detail-table', style: 'padding:0 20px;margin-top:16px;' });
   panel.appendChild(chartEl);
   panel.appendChild(tableEl);
+
+  // — Eliminar ejercicio —
+  var delEjSection = createElement('div', { style: 'padding:24px 20px 0;' });
+  var delEjBtn = createElement('button', { class: 'gym-btn-danger', style: 'width:100%;' }, ['Eliminar ejercicio']);
+  delEjBtn.addEventListener('click', function() {
+    gymShowConfirmModal(
+      '¿Eliminar ' + ej.nombre + '?',
+      'Se eliminará del directorio y de todas las sesiones donde fue registrado.',
+      function() {
+        dbGetAll('sets').then(function(allSets) {
+          var promises = allSets
+            .filter(function(s) { return s.ejercicio_id === ej.id; })
+            .map(function(s) { return dbDelete('sets', s.id); });
+          promises.push(dbDelete('ejercicios', ej.id));
+          return Promise.all(promises);
+        }).then(function() {
+          showToast(ej.nombre + ' eliminado');
+          renderDirectorio(panel);
+        });
+      }
+    );
+  });
+  delEjSection.appendChild(delEjBtn);
+  panel.appendChild(delEjSection);
   panel.appendChild(createElement('div', { style: 'height:80px;' }));
 
   function renderChart() {
@@ -1270,4 +1490,364 @@ function gymFormatShortDate(isoStr) {
   var d     = new Date(isoStr);
   var meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   return d.getDate() + ' ' + meses[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+// ─── Modal de confirmación reutilizable ───────────────────────────────────────
+function gymShowConfirmModal(title, message, onConfirm) {
+  var overlay = createElement('div', { class: 'gym-modal-overlay' });
+  var modal   = createElement('div', { class: 'gym-modal' });
+  modal.appendChild(createElement('div', { class: 'gym-modal-title' }, [title]));
+  if (message) {
+    modal.appendChild(createElement('div', { style: 'color:var(--t2);font-size:14px;margin-bottom:16px;' }, [message]));
+  }
+  var confirmBtn = createElement('button', { class: 'gym-btn-danger' }, ['Confirmar']);
+  var cancelBtn  = createElement('button', { class: 'gym-btn-secondary' }, ['Cancelar']);
+  confirmBtn.addEventListener('click', function() { overlay.remove(); onConfirm(); });
+  cancelBtn.addEventListener('click',  function() { overlay.remove(); });
+  modal.appendChild(confirmBtn);
+  modal.appendChild(cancelBtn);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+}
+
+// ─── Cardio: fila de registro ─────────────────────────────────────────────────
+function buildCardioRegistroRow(registro, onDelete) {
+  var row   = createElement('div', { class: 'gym-set-row' });
+  var texto = (registro.tipo_nombre || 'Cardio') + ' — ' + registro.tiempo_min + ' min';
+  if (registro.valores) {
+    var parts = Object.keys(registro.valores).filter(function(k) { return registro.valores[k] != null; });
+    if (parts.length > 0) {
+      texto += ' — ' + parts.map(function(k) { return k + ': ' + registro.valores[k]; }).join(', ');
+    }
+  }
+  var label  = createElement('span', {}, [texto]);
+  var delBtn = createElement('button', { class: 'gym-set-delete' }, ['×']);
+  delBtn.addEventListener('click', function() {
+    dbDelete('cardio_registros', registro.id).then(function() {
+      row.style.transition = 'opacity 0.15s';
+      row.style.opacity = '0';
+      setTimeout(function() { row.remove(); if (onDelete) onDelete(); }, 150);
+    });
+  });
+  row.appendChild(label);
+  row.appendChild(delBtn);
+  return row;
+}
+
+// ─── Cardio: formulario agregar registro (sesión activa) ──────────────────────
+function showAddCardioFlow(cardioSection, addCardioBtn, sesion, onSave) {
+  var existing = document.getElementById('gym-add-cardio-form');
+  if (existing) { existing.remove(); return; }
+
+  dbGetAll('cardio_tipos').then(function(tipos) {
+    var form = createElement('div', {
+      id: 'gym-add-cardio-form',
+      style: 'background:var(--bg2);border-radius:var(--r);padding:16px;margin-bottom:8px;'
+    });
+
+    if (tipos.length === 0) {
+      form.appendChild(createElement('div', {
+        style: 'color:var(--t3);font-size:14px;text-align:center;padding:8px 0;'
+      }, ['Sin tipos de cardio. Créalos en el Directorio → Cardio.']));
+      var closeBtn = createElement('button', { class: 'gym-btn-secondary' }, ['Cerrar']);
+      closeBtn.addEventListener('click', function() { form.remove(); });
+      form.appendChild(closeBtn);
+      cardioSection.insertBefore(form, addCardioBtn);
+      return;
+    }
+
+    var tipoSelect = createElement('select', {
+      style: 'width:100%;background:var(--bg3);color:var(--t1);border:none;border-radius:6px;padding:10px;font-size:15px;margin-bottom:10px;box-sizing:border-box;'
+    });
+    tipos.forEach(function(t) {
+      tipoSelect.appendChild(createElement('option', { value: String(t.id) }, [t.nombre]));
+    });
+    form.appendChild(tipoSelect);
+
+    var timeInput = createElement('input', {
+      type: 'number', class: 'gym-input-small',
+      placeholder: 'Tiempo (min)', style: 'width:100%;margin-bottom:8px;'
+    });
+    form.appendChild(timeInput);
+
+    var paramsDiv = createElement('div', {});
+    form.appendChild(paramsDiv);
+
+    function renderFormParams() {
+      paramsDiv.innerHTML = '';
+      var tipoId = parseInt(tipoSelect.value, 10);
+      var tipo   = null;
+      for (var i = 0; i < tipos.length; i++) { if (tipos[i].id === tipoId) { tipo = tipos[i]; break; } }
+      if (!tipo || !tipo.parametros || tipo.parametros.length === 0) return;
+      tipo.parametros.forEach(function(p) {
+        var wrap = createElement('div', { style: 'margin-bottom:6px;' });
+        wrap.appendChild(createElement('div', {
+          style: 'color:var(--t2);font-size:12px;margin-bottom:3px;'
+        }, [p.nombre + (p.unidad ? ' (' + p.unidad + ')' : '')]));
+        var inp = createElement('input', {
+          type: 'number', class: 'gym-input-small',
+          'data-param': p.nombre, placeholder: p.unidad || p.nombre, style: 'width:100%;'
+        });
+        wrap.appendChild(inp);
+        paramsDiv.appendChild(wrap);
+      });
+    }
+    tipoSelect.addEventListener('change', renderFormParams);
+    renderFormParams();
+
+    var btnRow  = createElement('div', { style: 'display:flex;gap:8px;margin-top:12px;' });
+    var saveBtn = createElement('button', { class: 'gym-btn-primary', style: 'flex:1;' }, ['Agregar']);
+    var cancelBtn = createElement('button', { class: 'gym-btn-secondary', style: 'flex:1;' }, ['Cancelar']);
+
+    saveBtn.addEventListener('click', function() {
+      var tiempo = parseInt(timeInput.value, 10);
+      if (!tiempo || tiempo <= 0) { showToast('Ingresa el tiempo en minutos'); return; }
+      var tipoId  = parseInt(tipoSelect.value, 10);
+      var tipo    = null;
+      for (var i = 0; i < tipos.length; i++) { if (tipos[i].id === tipoId) { tipo = tipos[i]; break; } }
+      var valores = {};
+      if (tipo && tipo.parametros) {
+        tipo.parametros.forEach(function(p) {
+          var inp = paramsDiv.querySelector('[data-param="' + p.nombre + '"]');
+          if (inp && inp.value !== '') valores[p.nombre] = parseFloat(inp.value);
+        });
+      }
+      var registro = {
+        sesion_id:   sesion.id,
+        tipo_id:     tipoId,
+        tipo_nombre: tipo ? tipo.nombre : '',
+        tiempo_min:  tiempo,
+        valores:     valores
+      };
+      dbPut('cardio_registros', registro).then(function() {
+        form.remove();
+        onSave();
+      });
+    });
+    cancelBtn.addEventListener('click', function() { form.remove(); });
+    btnRow.appendChild(saveBtn);
+    btnRow.appendChild(cancelBtn);
+    form.appendChild(btnRow);
+
+    cardioSection.insertBefore(form, addCardioBtn);
+    timeInput.focus();
+  });
+}
+
+// ─── Cardio Directorio: formulario nuevo tipo ──────────────────────────────────
+function showNuevoTipoCardioForm(panel, onCreated) {
+  var overlay = createElement('div', { class: 'gym-modal-overlay' });
+  var modal   = createElement('div', { class: 'gym-modal' });
+
+  modal.appendChild(createElement('div', { class: 'gym-modal-title' }, ['Nuevo tipo de cardio']));
+
+  var nameInput = createElement('input', {
+    type: 'text', class: 'gym-session-name-input', placeholder: 'Nombre (ej: Caminadora)'
+  });
+  modal.appendChild(nameInput);
+
+  modal.appendChild(createElement('div', { style: 'color:var(--t2);font-size:14px;margin:12px 0 4px;font-weight:600;' }, ['Parámetros']));
+  modal.appendChild(createElement('div', { style: 'color:var(--t3);font-size:12px;margin-bottom:8px;' }, ['El tiempo siempre está incluido.']));
+
+  var paramsContainer = createElement('div', {});
+  modal.appendChild(paramsContainer);
+
+  var addParamBtn = createElement('button', { class: 'gym-btn-secondary', style: 'font-size:13px;padding:6px 12px;' }, ['+ Agregar parámetro']);
+  addParamBtn.addEventListener('click', function() {
+    var paramRow   = createElement('div', { style: 'display:flex;gap:6px;margin-bottom:6px;align-items:center;' });
+    var nombreInp  = createElement('input', { type: 'text', class: 'gym-input-small', placeholder: 'Nombre (ej: Inclinación)', style: 'flex:1;' });
+    var unidadInp  = createElement('input', { type: 'text', class: 'gym-input-small', placeholder: 'Unidad (ej: nivel)', style: 'flex:1;' });
+    var removeBtn  = createElement('button', { class: 'gym-set-delete' }, ['×']);
+    removeBtn.addEventListener('click', function() { paramRow.remove(); });
+    paramRow.appendChild(nombreInp);
+    paramRow.appendChild(unidadInp);
+    paramRow.appendChild(removeBtn);
+    paramsContainer.appendChild(paramRow);
+    nombreInp.focus();
+  });
+  modal.appendChild(addParamBtn);
+
+  var createBtn  = createElement('button', { class: 'gym-btn-primary', style: 'margin-top:16px;' }, ['Crear']);
+  var cancelBtn  = createElement('button', { class: 'gym-btn-secondary' }, ['Cancelar']);
+
+  createBtn.addEventListener('click', function() {
+    var nombre = nameInput.value.trim();
+    if (!nombre) { showToast('Ingresa un nombre'); return; }
+    var params = [];
+    var rows   = paramsContainer.querySelectorAll('div');
+    rows.forEach(function(row) {
+      var inputs = row.querySelectorAll('input');
+      if (inputs.length >= 2) {
+        var n = inputs[0].value.trim();
+        var u = inputs[1].value.trim();
+        if (n) params.push({ nombre: n, unidad: u });
+      }
+    });
+    dbPut('cardio_tipos', { nombre: nombre, parametros: params }).then(function() {
+      overlay.remove();
+      showToast('Tipo de cardio creado');
+      if (onCreated) onCreated();
+    });
+  });
+  cancelBtn.addEventListener('click', function() { overlay.remove(); });
+
+  modal.appendChild(createBtn);
+  modal.appendChild(cancelBtn);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  nameInput.focus();
+}
+
+// ─── Cardio Directorio: detalle de tipo ───────────────────────────────────────
+function showCardioTipoDetalle(panel, tipo) {
+  panel.innerHTML = '';
+
+  var header  = createElement('div', { class: 'gym-dir-detail-header' });
+  var backBtn = createElement('button', { class: 'gym-dir-back-btn' }, ['‹ Directorio']);
+  backBtn.addEventListener('click', function() { renderDirectorio(panel); });
+  header.appendChild(backBtn);
+
+  // — Nombre editable —
+  var nameRow = createElement('div', { style: 'display:flex;align-items:center;gap:8px;' });
+  var nameEl  = createElement('div', { class: 'gym-dir-detail-title', style: 'flex:1;margin-bottom:0;' }, [tipo.nombre]);
+  var nameEditBtn = createElement('button', { style: 'background:none;border:none;cursor:pointer;font-size:16px;padding:4px;flex-shrink:0;' }, ['✏️']);
+  nameEditBtn.addEventListener('click', function() {
+    if (nameRow.querySelector('input')) return;
+    var inp = createElement('input', { type: 'text', class: 'gym-session-name-input', style: 'flex:1;margin-bottom:0;' });
+    inp.value = tipo.nombre;
+    var saveBtn2 = createElement('button', { class: 'gym-btn-primary', style: 'padding:6px 12px;font-size:13px;' }, ['Guardar']);
+    var cancelBtn2 = createElement('button', { class: 'gym-btn-secondary', style: 'padding:6px 12px;font-size:13px;' }, ['Cancelar']);
+    saveBtn2.addEventListener('click', function() {
+      var nuevo = inp.value.trim();
+      if (!nuevo) { showToast('El nombre no puede estar vacío'); return; }
+      tipo.nombre = nuevo;
+      dbPut('cardio_tipos', tipo).then(function() {
+        nameEl.textContent = nuevo;
+        nameRow.innerHTML = '';
+        nameRow.appendChild(nameEl);
+        nameRow.appendChild(nameEditBtn);
+        showToast('Nombre actualizado');
+      });
+    });
+    cancelBtn2.addEventListener('click', function() {
+      nameRow.innerHTML = '';
+      nameRow.appendChild(nameEl);
+      nameRow.appendChild(nameEditBtn);
+    });
+    nameRow.innerHTML = '';
+    nameRow.appendChild(inp);
+    nameRow.appendChild(saveBtn2);
+    nameRow.appendChild(cancelBtn2);
+    inp.focus();
+  });
+  nameRow.appendChild(nameEl);
+  nameRow.appendChild(nameEditBtn);
+  header.appendChild(nameRow);
+  panel.appendChild(header);
+
+  // — Parámetros —
+  var paramsSection = createElement('div', { style: 'padding:0 20px;margin-top:20px;' });
+  paramsSection.appendChild(createElement('div', { style: 'color:var(--t2);font-size:14px;font-weight:600;margin-bottom:4px;' }, ['Parámetros']));
+  paramsSection.appendChild(createElement('div', { style: 'color:var(--t3);font-size:12px;margin-bottom:12px;' }, ['El tiempo siempre está incluido.']));
+
+  if (!tipo.parametros) tipo.parametros = [];
+
+  var paramsListEl = createElement('div', {});
+
+  function renderParamsList() {
+    paramsListEl.innerHTML = '';
+    tipo.parametros.forEach(function(p, idx) {
+      var paramRow  = createElement('div', { style: 'display:flex;align-items:center;gap:8px;margin-bottom:8px;' });
+      var nombreInp = createElement('input', { type: 'text', class: 'gym-input-small', placeholder: 'Nombre', style: 'flex:1;' });
+      var unidadInp = createElement('input', { type: 'text', class: 'gym-input-small', placeholder: 'Unidad', style: 'flex:1;' });
+      nombreInp.value = p.nombre || '';
+      unidadInp.value = p.unidad || '';
+
+      nombreInp.addEventListener('blur', function() { tipo.parametros[idx].nombre = nombreInp.value.trim(); });
+      unidadInp.addEventListener('blur', function() { tipo.parametros[idx].unidad = unidadInp.value.trim(); });
+
+      var delParamBtn = createElement('button', { class: 'gym-set-delete' }, ['×']);
+      delParamBtn.addEventListener('click', function() {
+        var pNombre = p.nombre;
+        var doDelete = function() {
+          tipo.parametros.splice(idx, 1);
+          dbPut('cardio_tipos', tipo).then(function() {
+            renderParamsList();
+            showToast('Parámetro eliminado');
+          });
+        };
+        dbGetAll('cardio_registros').then(function(registros) {
+          var usando = registros.filter(function(r) {
+            return r.tipo_id === tipo.id && r.valores && r.valores[pNombre] != null;
+          });
+          if (usando.length > 0) {
+            gymShowConfirmModal(
+              '¿Eliminar parámetro "' + pNombre + '"?',
+              'Hay ' + usando.length + ' registro(s) con este parámetro. Sus valores se conservarán en el historial.',
+              doDelete
+            );
+          } else {
+            doDelete();
+          }
+        });
+      });
+
+      paramRow.appendChild(nombreInp);
+      paramRow.appendChild(unidadInp);
+      paramRow.appendChild(delParamBtn);
+      paramsListEl.appendChild(paramRow);
+    });
+
+    var addParamBtn = createElement('button', {
+      class: 'gym-btn-secondary', style: 'margin-top:4px;font-size:13px;padding:6px 12px;'
+    }, ['+ Agregar parámetro']);
+    addParamBtn.addEventListener('click', function() {
+      tipo.parametros.push({ nombre: '', unidad: '' });
+      renderParamsList();
+      var inputs = paramsListEl.querySelectorAll('input');
+      if (inputs.length >= 2) inputs[inputs.length - 2].focus();
+    });
+    paramsListEl.appendChild(addParamBtn);
+
+    var saveParamsBtn = createElement('button', { class: 'gym-btn-primary', style: 'margin-top:8px;' }, ['Guardar parámetros']);
+    saveParamsBtn.addEventListener('click', function() {
+      tipo.parametros = tipo.parametros.filter(function(p) { return p.nombre && p.nombre.trim(); });
+      dbPut('cardio_tipos', tipo).then(function() {
+        showToast('Parámetros guardados');
+        renderParamsList();
+      });
+    });
+    paramsListEl.appendChild(saveParamsBtn);
+  }
+
+  renderParamsList();
+  paramsSection.appendChild(paramsListEl);
+  panel.appendChild(paramsSection);
+
+  // — Eliminar tipo —
+  var delSection = createElement('div', { style: 'padding:24px 20px 0;' });
+  var delBtn     = createElement('button', { class: 'gym-btn-danger', style: 'width:100%;' }, ['Eliminar tipo de cardio']);
+  delBtn.addEventListener('click', function() {
+    gymShowConfirmModal(
+      '¿Eliminar ' + tipo.nombre + '?',
+      'Se eliminarán todos los registros de cardio de este tipo.',
+      function() {
+        dbGetAll('cardio_registros').then(function(registros) {
+          var promises = registros
+            .filter(function(r) { return r.tipo_id === tipo.id; })
+            .map(function(r) { return dbDelete('cardio_registros', r.id); });
+          promises.push(dbDelete('cardio_tipos', tipo.id));
+          return Promise.all(promises);
+        }).then(function() {
+          showToast(tipo.nombre + ' eliminado');
+          renderDirectorio(panel);
+        });
+      }
+    );
+  });
+  delSection.appendChild(delBtn);
+  panel.appendChild(delSection);
+  panel.appendChild(createElement('div', { style: 'height:80px;' }));
 }
