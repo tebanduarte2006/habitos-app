@@ -846,6 +846,134 @@ function renderProgresionTab(panel) {
   });
 
   renderCalendario(subPanels['calendario']);
+
+  // ── Sección Export / Import ──────────────────────────────────────────────────
+  var eiSep = createElement('div', {
+    style: 'height:1px;background:var(--sep2);margin:28px 20px 20px;'
+  });
+  panel.appendChild(eiSep);
+
+  var eiWrap = createElement('div', { style: 'padding:0 20px 80px;display:flex;flex-direction:column;gap:12px;' });
+
+  var exportBtn = createElement('button', { class: 'gym-btn-secondary' }, ['Exportar datos']);
+  exportBtn.addEventListener('click', function() { gymExportData(); });
+
+  var importBtn = createElement('button', { class: 'gym-btn-secondary' }, ['Importar datos']);
+  importBtn.addEventListener('click', function() { gymImportData(panel); });
+
+  eiWrap.appendChild(exportBtn);
+  eiWrap.appendChild(importBtn);
+  panel.appendChild(eiWrap);
+}
+
+// ─── Export / Import ──────────────────────────────────────────────────────────
+function gymExportData() {
+  Promise.all([
+    dbGetAll('sesiones'),
+    dbGetAll('ejercicios'),
+    dbGetAll('sets')
+  ]).then(function(results) {
+    var payload = {
+      version:    1,
+      exportDate: new Date().toISOString(),
+      sesiones:   results[0],
+      ejercicios: results[1],
+      sets:       results[2]
+    };
+    var json  = JSON.stringify(payload, null, 2);
+    var blob  = new Blob([json], { type: 'application/json' });
+    var url   = URL.createObjectURL(blob);
+    var today = new Date().toISOString().slice(0, 10);
+    var a     = document.createElement('a');
+    a.href     = url;
+    a.download = 'habitos-gym-backup-' + today + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+    showToast('Backup descargado');
+  });
+}
+
+function gymImportData(progresionPanel) {
+  var fileInput = document.createElement('input');
+  fileInput.type   = 'file';
+  fileInput.accept = '.json';
+  fileInput.style.display = 'none';
+  document.body.appendChild(fileInput);
+
+  fileInput.addEventListener('change', function() {
+    var file = fileInput.files[0];
+    document.body.removeChild(fileInput);
+    if (!file) return;
+
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var data;
+      try { data = JSON.parse(e.target.result); } catch(err) {
+        showToast('Archivo no válido');
+        return;
+      }
+
+      if (!data || data.version == null ||
+          !Array.isArray(data.sesiones) ||
+          !Array.isArray(data.ejercicios) ||
+          !Array.isArray(data.sets)) {
+        showToast('Archivo no válido');
+        return;
+      }
+
+      var nSes = data.sesiones.length;
+      var nEj  = data.ejercicios.length;
+      var nSet = data.sets.length;
+
+      var overlay = createElement('div', { class: 'gym-modal-overlay' });
+      var modal   = createElement('div', { class: 'gym-modal' });
+      modal.appendChild(createElement('div', { class: 'gym-modal-title' }, ['Importar backup']));
+      modal.appendChild(createElement('div', {
+        style: 'color:var(--t2);font-size:14px;margin-bottom:16px;line-height:1.5;'
+      }, [
+        'El backup contiene ' + nSes + ' sesiones, ' + nEj + ' ejercicios y ' + nSet + ' sets. ' +
+        '¿Importar? Esto fusionará los datos con los existentes. ' +
+        'Los registros duplicados (mismo ID) se sobrescriben.'
+      ]));
+
+      var confirmBtn = createElement('button', { class: 'gym-btn-primary' }, ['Importar']);
+      var cancelBtn  = createElement('button', { class: 'gym-btn-secondary' }, ['Cancelar']);
+
+      confirmBtn.addEventListener('click', function() {
+        overlay.remove();
+        openDB().then(function(db) {
+          var tx = db.transaction(['sesiones', 'ejercicios', 'sets'], 'readwrite');
+          var sStore = tx.objectStore('sesiones');
+          var eStore = tx.objectStore('ejercicios');
+          var setStore = tx.objectStore('sets');
+
+          data.sesiones.forEach(function(r)   { sStore.put(r); });
+          data.ejercicios.forEach(function(r) { eStore.put(r); });
+          data.sets.forEach(function(r)       { setStore.put(r); });
+
+          tx.oncomplete = function() {
+            showToast(nSes + ' sesiones, ' + nEj + ' ejercicios, ' + nSet + ' sets importados.');
+            renderProgresionTab(progresionPanel);
+          };
+          tx.onerror = function() {
+            showToast('Error al importar');
+          };
+        });
+      });
+
+      cancelBtn.addEventListener('click', function() { overlay.remove(); });
+      modal.appendChild(confirmBtn);
+      modal.appendChild(cancelBtn);
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+      overlay.addEventListener('click', function(ev) { if (ev.target === overlay) overlay.remove(); });
+    };
+    reader.readAsText(file);
+  });
+
+  fileInput.click();
 }
 
 // ─── SUB-TAB 1: CALENDARIO ────────────────────────────────────────────────────
