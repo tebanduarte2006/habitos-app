@@ -2,13 +2,15 @@
 // Todos los módulos que necesiten persistencia acumulativa usan esta capa.
 
 const DB_NAME = 'habitos-db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
+      const tx = e.target.transaction;
+      const oldVersion = e.oldVersion;
       // Gym
       if (!db.objectStoreNames.contains('sesiones')) {
         const s = db.createObjectStore('sesiones', { keyPath: 'id', autoIncrement: true });
@@ -43,6 +45,28 @@ function openDB() {
         const fdc = db.createObjectStore('flow_distraccion_catalogo', { keyPath: 'id', autoIncrement: true });
         fdc.createIndex('nombre', 'nombre', { unique: true });
         fdc.createIndex('nombre_normalizado', 'nombre_normalizado', { unique: true });
+      }
+      // Migración v2→v3: musculo_primario pasa a JSON array en ejercicios
+      if (oldVersion < 3 && db.objectStoreNames.contains('ejercicios')) {
+        const ejStore = tx.objectStore('ejercicios');
+        ejStore.openCursor().onsuccess = function(ev) {
+          const cursor = ev.target.result;
+          if (!cursor) return;
+          const rec = cursor.value;
+          if (rec.musculo_primario && typeof rec.musculo_primario === 'string' && rec.musculo_primario.charAt(0) !== '[') {
+            rec.musculo_primario = JSON.stringify([rec.musculo_primario]);
+            cursor.update(rec);
+          }
+          cursor.continue();
+        };
+      }
+      // Cardio
+      if (!db.objectStoreNames.contains('cardio_tipos')) {
+        db.createObjectStore('cardio_tipos', { keyPath: 'id', autoIncrement: true });
+      }
+      if (!db.objectStoreNames.contains('cardio_registros')) {
+        const cr = db.createObjectStore('cardio_registros', { keyPath: 'id', autoIncrement: true });
+        cr.createIndex('sesion_id', 'sesion_id');
       }
     };
     req.onsuccess = () => resolve(req.result);

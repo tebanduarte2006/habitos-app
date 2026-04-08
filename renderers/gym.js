@@ -544,7 +544,7 @@ function showAddExerciseFlow(panel, exercisesList, sesion) {
   searchInput.focus();
 }
 
-// ─── Selector de músculo primario ─────────────────────────────────────────────
+// ─── Selector de músculos primarios (multi-selección) ─────────────────────────
 function showMusclePicker(overlay, nombre, exercisesList, sesion) {
   overlay.innerHTML = '';
 
@@ -554,29 +554,32 @@ function showMusclePicker(overlay, nombre, exercisesList, sesion) {
     'Abdominales','Gemelos','Trapecios'
   ];
 
-  var selectedMusculo = null;
+  var selected = {};
 
-  overlay.appendChild(createElement('div', { class: 'gym-modal-title', style: 'margin-bottom:4px;' }, ['Músculo primario']));
+  overlay.appendChild(createElement('div', { class: 'gym-modal-title', style: 'margin-bottom:4px;' }, ['Músculos primarios']));
   overlay.appendChild(createElement('div', { style: 'color:var(--t2);font-size:14px;margin-bottom:8px;' }, ['"' + nombre + '"']));
 
   var grid = createElement('div', { class: 'gym-muscle-grid' });
   musculos.forEach(function(m) {
-    var btn = createElement('button', { class: 'gym-muscle-btn' }, [m]);
-    btn.addEventListener('click', function() {
-      grid.querySelectorAll('.gym-muscle-btn').forEach(function(b) { b.classList.remove('selected'); });
-      btn.classList.add('selected');
-      selectedMusculo = m;
+    var lbl = createElement('label', { class: 'gym-muscle-checkbox-label' });
+    var cb  = createElement('input', { type: 'checkbox' });
+    cb.addEventListener('change', function() {
+      if (cb.checked) { selected[m] = true; lbl.classList.add('selected'); }
+      else            { delete selected[m]; lbl.classList.remove('selected'); }
     });
-    grid.appendChild(btn);
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode(' ' + m));
+    grid.appendChild(lbl);
   });
   overlay.appendChild(grid);
 
   var confirmBtn = createElement('button', { class: 'gym-btn-primary' }, ['Confirmar']);
   confirmBtn.addEventListener('click', function() {
-    if (!selectedMusculo) { showToast('Selecciona un músculo'); return; }
+    var arr = musculos.filter(function(m) { return selected[m]; });
+    if (arr.length === 0) { showToast('Selecciona al menos un músculo'); return; }
     var newEj = {
       nombre:           nombre,
-      musculo_primario: selectedMusculo,
+      musculo_primario: JSON.stringify(arr),
       fecha_creacion:   new Date().toISOString()
     };
     dbPut('ejercicios', newEj).then(function(id) {
@@ -591,6 +594,18 @@ function showMusclePicker(overlay, nombre, exercisesList, sesion) {
 
   overlay.appendChild(confirmBtn);
   overlay.appendChild(cancelBtn);
+}
+
+// ─── Formatea musculo_primario (string o JSON array) ──────────────────────────
+function gymMusculoStr(val) {
+  if (!val) return '';
+  if (typeof val === 'string' && val.charAt(0) === '[') {
+    try {
+      var arr = JSON.parse(val);
+      return Array.isArray(arr) ? arr.join(' · ') : val;
+    } catch(e) { return val; }
+  }
+  return val;
 }
 
 // ─── Agregar ejercicio a la sesión ────────────────────────────────────────────
@@ -913,7 +928,13 @@ function renderDirectorio(panel) {
 
       var filtered = ejercicios.filter(function(e) {
         var mQ = !_gymDirSearchQuery || e.nombre.toLowerCase().indexOf(_gymDirSearchQuery.toLowerCase()) >= 0;
-        var mM = _gymDirMuscleFilter === 'Todos' || e.musculo_primario === _gymDirMuscleFilter;
+        var mM = _gymDirMuscleFilter === 'Todos';
+        if (!mM && e.musculo_primario) {
+          try {
+            var arr = JSON.parse(e.musculo_primario);
+            mM = Array.isArray(arr) ? arr.indexOf(_gymDirMuscleFilter) >= 0 : e.musculo_primario === _gymDirMuscleFilter;
+          } catch(ex) { mM = e.musculo_primario === _gymDirMuscleFilter; }
+        }
         return mQ && mM;
       });
       filtered.sort(function(a, b) { return a.nombre.localeCompare(b.nombre); });
@@ -941,7 +962,7 @@ function renderDirectorio(panel) {
         var item    = createElement('div', { class: 'gym-dir-item' });
         item.appendChild(createElement('div', { class: 'gym-dir-item-name' }, [ej.nombre]));
         var sub = createElement('div', { class: 'gym-dir-item-sub' });
-        sub.appendChild(createElement('span', { style: 'color:var(--accent);' }, [ej.musculo_primario || '']));
+        sub.appendChild(createElement('span', { style: 'color:var(--accent);' }, [gymMusculoStr(ej.musculo_primario)]));
         sub.appendChild(createElement('span', {}, [' · Última vez: ' + lastStr]));
         item.appendChild(sub);
         item.addEventListener('click', function() { showEjercicioDetalle(panel, ej); });
@@ -962,7 +983,7 @@ function showEjercicioDetalle(panel, ej) {
   backBtn.addEventListener('click', function() { renderDirectorio(panel); });
   header.appendChild(backBtn);
   header.appendChild(createElement('div', { class: 'gym-dir-detail-title' }, [ej.nombre]));
-  header.appendChild(createElement('div', { class: 'gym-dir-detail-muscle' }, [ej.musculo_primario || '']));
+  header.appendChild(createElement('div', { class: 'gym-dir-detail-muscle' }, [gymMusculoStr(ej.musculo_primario)]));
   panel.appendChild(header);
 
   var ranges   = ['1M', '3M', '6M', '1A', 'Todo'];
@@ -1210,7 +1231,7 @@ function renderPRs(panel) {
     });
 
     prs.sort(function(a, b) {
-      var mg = (a.ejercicio.musculo_primario || '').localeCompare(b.ejercicio.musculo_primario || '');
+      var mg = gymMusculoStr(a.ejercicio.musculo_primario).localeCompare(gymMusculoStr(b.ejercicio.musculo_primario));
       return mg !== 0 ? mg : a.ejercicio.nombre.localeCompare(b.ejercicio.nombre);
     });
 
@@ -1225,7 +1246,7 @@ function renderPRs(panel) {
     var currentMuscle = null;
 
     prs.forEach(function(pr) {
-      var muscle = pr.ejercicio.musculo_primario || 'Sin grupo';
+      var muscle = gymMusculoStr(pr.ejercicio.musculo_primario) || 'Sin grupo';
       if (muscle !== currentMuscle) {
         currentMuscle = muscle;
         listEl.appendChild(createElement('div', { class: 'gym-pr-muscle-header' }, [muscle]));
