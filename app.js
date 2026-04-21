@@ -89,10 +89,6 @@ function loadModule(mod, container) {
         container.innerHTML = '<div class="load-error">Error cargando módulo.</div>';
         console.error(err);
       });
-  } else if (mod.type === 'custom') {
-    switch (mod.id) {
-      case 'kegel': renderKegelModule(container); break;
-    }
   } else if (mod.type === 'interactive') {
     switch (mod.id) {
       case 'mental': renderMentalModule(container); break;
@@ -468,19 +464,6 @@ function loadDays() {
 document.addEventListener('DOMContentLoaded', function() {
   dailyReset();
 
-  // Registrar módulo Skincare
-  registerModule({
-    id: 'skincare',
-    label: 'Skincare',
-    icon: '✦',
-    color: '#007AFF',
-    type: 'json',
-    reminder: function() {
-      var hour = new Date().getHours();
-      return hour < 12 ? 'Rutina de mañana pendiente' : 'Rutina de noche pendiente';
-    }
-  });
-
   registerModule({
     id: 'gym',
     label: 'Gym',
@@ -489,24 +472,6 @@ document.addEventListener('DOMContentLoaded', function() {
     type: 'dynamic',
     reminder: function() { return 'Registra tu sesión de hoy'; },
     render: function(container) { renderGymModule(container); }
-  });
-
-  registerModule({
-    id: 'oral',
-    label: 'Oral',
-    icon: '🦷',
-    color: '#30d158',
-    type: 'json',
-    reminder: function() { return 'Rutina oral pendiente'; }
-  });
-
-  registerModule({
-    id: 'kegel',
-    label: 'Kegel',
-    icon: '🤞',
-    color: '#ff9f0a',
-    type: 'custom',
-    reminder: function() { return 'Completa tu rutina de Kegel hoy.'; }
   });
 
   registerModule({
