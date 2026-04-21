@@ -1,13 +1,16 @@
 // Service Worker — Hábitos App
 // La version usa timestamp para no requerir cambio manual en cada deploy
-var CACHE = "habitos-" + "20260407-6";
+var CACHE = "habitos-" + "20260421-1";
 var ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
   "./db.js",
-  "./manifest.json"
+  "./manifest.json",
+  "./renderers/gym.js",
+  "./modules/gym.json",
+  "./modules/mental.js"
 ];
 
 self.addEventListener("install", function(e) {
