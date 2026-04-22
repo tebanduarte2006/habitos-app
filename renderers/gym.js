@@ -12,7 +12,7 @@
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 var GYM_MUSCLE_GROUPS = ['Pecho','Espalda','Hombros','Bíceps','Tríceps','Piernas','Core','Glúteos'];
-var GYM_TYPES = ['Push','Pull','Core','Legs'];
+// Tipos de rutina = nombres definidos por el usuario (free-text). Se descubren dinámicamente.
 var GYM_STATUS = { PENDING: 'Pending', DONE: 'Done', SKIPPED: 'Skipped' };
 var GYM_STATUS_ICON = { Pending: '🔲', Done: '✅', Skipped: '❌' };
 
@@ -25,33 +25,22 @@ var _gymRestRemaining = 0;
 // Permite cambiar de tab y volver sin re-disparar el modal.
 var _gymAcknowledgedSession = null;
 
-// ─── Unidades (kg canonical en DB, display configurable) ───────────────────────
-var GYM_UNIT_KEY = 'gym_unit';
+// ─── Unidades (kg canonical en DB, display siempre lbs; toggle por-set en input) ─
 var KG_PER_LB = 0.45359237;
-function gymGetUnit() {
-  try { var v = localStorage.getItem(GYM_UNIT_KEY); return v === 'kg' ? 'kg' : 'lbs'; }
-  catch (e) { return 'lbs'; }
-}
-function gymSetUnit(u) {
-  try { localStorage.setItem(GYM_UNIT_KEY, u === 'kg' ? 'kg' : 'lbs'); } catch (e) {}
-}
-function gymKgToDisplay(kg) {
+function gymKgToLbs(kg) {
   var n = Number(kg);
   if (!isFinite(n)) return null;
-  if (gymGetUnit() === 'lbs') return Math.round(n / KG_PER_LB * 10) / 10;
-  return Math.round(n * 10) / 10;
+  return Math.round(n / KG_PER_LB * 10) / 10;
 }
-function gymDisplayToKg(value, unit) {
+function gymInputToKg(value, unit) {
   var n = Number(value);
   if (!isFinite(n)) return NaN;
-  return (unit || gymGetUnit()) === 'lbs' ? n * KG_PER_LB : n;
+  return unit === 'kg' ? n : n * KG_PER_LB;
 }
 function gymFormatWeight(kg) {
-  var d = gymKgToDisplay(kg);
-  if (d === null) return '—';
-  // Quitar ".0" final
-  var s = (Math.round(d * 10) / 10).toString();
-  return s + ' ' + gymGetUnit();
+  var lbs = gymKgToLbs(kg);
+  if (lbs === null) return '—';
+  return (Math.round(lbs * 10) / 10) + ' lbs';
 }
 
 // ─── Utilidades ────────────────────────────────────────────────────────────────
@@ -285,31 +274,66 @@ function gymShowStartModal(panel) {
   var modal = createElement('div', { class: 'gym-modal' });
   modal.appendChild(createElement('div', { class: 'gym-modal-title' }, ['Nueva sesión']));
   modal.appendChild(createElement('div', {
-    style: 'color:var(--t2);font-size:14px;margin-bottom:12px;'
-  }, ['Elige un tipo de rutina:']));
+    style: 'color:var(--t2);font-size:14px;margin-bottom:10px;'
+  }, ['Nombre de la rutina:']));
 
-  var routineTypes = ['Push','Pull','Legs','Full Body','Custom'];
-  var typeWrap = createElement('div', {
-    style: 'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;'
+  var input = createElement('input', {
+    class: 'gym-search-input',
+    type: 'text',
+    placeholder: 'Ej. Upper, Push, Leg Day…',
+    autocomplete: 'off'
   });
+  modal.appendChild(input);
 
-  routineTypes.forEach(function(type) {
-    var btn = createElement('button', { class: 'gym-muscle-btn' }, [type]);
-    btn.addEventListener('click', function() {
-      overlay.remove();
-      gymCreateSession(panel, type);
-    });
-    typeWrap.appendChild(btn);
+  var sugg = createElement('div', { class: 'gym-suggestions' });
+  modal.appendChild(sugg);
+
+  var startBtn = createElement('button', { class: 'gym-btn-primary' }, ['▶ Iniciar']);
+  startBtn.addEventListener('click', function() {
+    var name = input.value.trim();
+    if (!name) { showToast('Escribe un nombre para la rutina'); return; }
+    overlay.remove();
+    gymCreateSession(panel, name);
   });
-  modal.appendChild(typeWrap);
+  modal.appendChild(startBtn);
 
   var cancelBtn = createElement('button', { class: 'gym-btn-secondary' }, ['Cancelar']);
   cancelBtn.addEventListener('click', function() { overlay.remove(); });
   modal.appendChild(cancelBtn);
 
+  // Autocomplete: nombres de rutinas previas
+  Promise.all([dbGetAll('sesiones'), dbGetAll('ejercicios')]).then(function(r) {
+    var nameSet = {};
+    r[0].forEach(function(s) { if (s.routine_type) nameSet[s.routine_type] = true; });
+    r[1].forEach(function(e) { if (e.tipo) nameSet[e.tipo] = true; });
+    var allNames = Object.keys(nameSet).sort();
+    var render = function(term) {
+      sugg.innerHTML = '';
+      var t = (term || '').trim().toLowerCase();
+      var filtered = allNames.filter(function(n) { return !t || n.toLowerCase().indexOf(t) >= 0; });
+      if (filtered.length === 0 && !t) {
+        sugg.appendChild(createElement('div', {
+          style: 'padding:12px;color:var(--t3);font-size:13px;text-align:center;'
+        }, ['Sin rutinas previas. Escribe una nueva.']));
+        return;
+      }
+      filtered.slice(0, 8).forEach(function(n) {
+        var item = createElement('div', { class: 'gym-suggestion-item' }, [n]);
+        item.addEventListener('click', function() {
+          overlay.remove();
+          gymCreateSession(panel, n);
+        });
+        sugg.appendChild(item);
+      });
+    };
+    render('');
+    input.addEventListener('input', function() { render(input.value); });
+  });
+
   var overlay = createElement('div', { class: 'gym-modal-overlay' }, [modal]);
   overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
   document.body.appendChild(overlay);
+  setTimeout(function() { input.focus(); }, 50);
 }
 
 function gymCreateSession(panel, routineType) {
@@ -318,7 +342,7 @@ function gymCreateSession(panel, routineType) {
     var n = all.length + 1;
     var now = Date.now();
     var sesion = {
-      nombre: 'Workout #' + n + (routineType === 'Custom' ? '' : ' · ' + routineType),
+      nombre: 'Workout #' + n + ' · ' + routineType,
       fecha: new Date(now).toISOString(),
       timestamp_inicio: now,
       finalizada: false,
@@ -349,15 +373,10 @@ function gymRenderActiveSession(panel, sesion) {
   titleRow.appendChild(gymStatusChip(GYM_STATUS.PENDING));
 
   var bottomRow = createElement('div', {
-    style: 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:6px;'
+    style: 'display:flex;align-items:center;justify-content:flex-start;gap:12px;margin-top:6px;'
   });
   var timerEl = createElement('div', { class: 'gym-timer', id: 'gym-session-timer' }, ['0:00']);
   bottomRow.appendChild(timerEl);
-  bottomRow.appendChild(gymBuildUnitToggle(function() {
-    // Al cambiar unidad, re-render la lista para reflejar valores
-    var listEl = document.getElementById('gym-ex-list');
-    if (listEl) gymRefreshSessionExercises(sesion, listEl);
-  }));
 
   header.appendChild(titleRow);
   header.appendChild(bottomRow);
@@ -444,23 +463,6 @@ function gymRefreshSessionExercises(sesion, listEl) {
   });
 }
 
-function gymBuildUnitToggle(onChange) {
-  var wrap = createElement('div', { class: 'gym-unit-toggle' });
-  var btnLbs = createElement('button', {}, ['lbs']);
-  var btnKg  = createElement('button', {}, ['kg']);
-  var paint = function() {
-    var u = gymGetUnit();
-    btnLbs.classList.toggle('active', u === 'lbs');
-    btnKg.classList.toggle('active', u === 'kg');
-  };
-  btnLbs.addEventListener('click', function() { gymSetUnit('lbs'); paint(); if (onChange) onChange(); });
-  btnKg.addEventListener('click',  function() { gymSetUnit('kg');  paint(); if (onChange) onChange(); });
-  wrap.appendChild(btnLbs);
-  wrap.appendChild(btnKg);
-  paint();
-  return wrap;
-}
-
 function gymBuildExerciseCard(sesion, ej, sets, listEl) {
   var card = createElement('div', { class: 'gym-exercise-card' });
 
@@ -498,18 +500,26 @@ function gymBuildExerciseCard(sesion, ej, sets, listEl) {
     card.appendChild(row);
   });
 
-  // Agregar set
+  // Agregar set — con toggle por-input lbs/kg (default lbs)
+  var setUnit = 'lbs';
   var addSetRow = createElement('div', { class: 'gym-add-set-row' });
-  var unitLabel = gymGetUnit();
-  var pesoInput = createElement('input', { class: 'gym-input-small', type: 'number', placeholder: 'Peso (' + unitLabel + ')', step: '0.5' });
+  var pesoInput = createElement('input', { class: 'gym-input-small', type: 'number', placeholder: 'Peso (lbs)', step: '0.5' });
+  var unitToggle = createElement('button', {
+    type: 'button',
+    style: 'background:rgba(255,255,255,0.06);border:1px solid var(--sep);color:var(--t1);font-size:13px;font-weight:600;padding:0 12px;border-radius:var(--radius-sm);min-height:44px;cursor:pointer;'
+  }, ['lbs']);
+  unitToggle.addEventListener('click', function() {
+    setUnit = setUnit === 'lbs' ? 'kg' : 'lbs';
+    unitToggle.textContent = setUnit;
+    pesoInput.placeholder = 'Peso (' + setUnit + ')';
+  });
   var repsInput = createElement('input', { class: 'gym-input-small', type: 'number', placeholder: 'Reps', step: '1' });
   var confirmBtn = createElement('button', { class: 'gym-confirm-set-btn' }, ['+ Set']);
   confirmBtn.addEventListener('click', function() {
     var inputVal = parseFloat(pesoInput.value);
     var reps = parseInt(repsInput.value, 10);
     if (!(inputVal >= 0) || !(reps > 0)) { showToast('Peso y reps requeridos'); return; }
-    var pesoKg = gymDisplayToKg(inputVal);
-    // Guardar con 3 decimales para no perder precisión en la conversión ida-vuelta
+    var pesoKg = gymInputToKg(inputVal, setUnit);
     pesoKg = Math.round(pesoKg * 1000) / 1000;
     var orden = sets.length > 0 ? Math.max.apply(null, sets.map(function(s) { return s.orden || 0; })) + 1 : 1;
     var newSet = {
@@ -528,6 +538,7 @@ function gymBuildExerciseCard(sesion, ej, sets, listEl) {
     });
   });
   addSetRow.appendChild(pesoInput);
+  addSetRow.appendChild(unitToggle);
   addSetRow.appendChild(repsInput);
   addSetRow.appendChild(confirmBtn);
   card.appendChild(addSetRow);
@@ -647,7 +658,7 @@ function gymShowAddExerciseModal(sesion, listEl) {
     overlay.remove();
     gymShowNewExerciseModal(function(newEj) {
       gymAttachExerciseToSession(sesion, newEj, listEl);
-    });
+    }, sesion.routine_type);
   });
   modal.appendChild(newBtn);
 
@@ -697,24 +708,30 @@ function gymShowAddExerciseModal(sesion, listEl) {
 }
 
 function gymAttachExerciseToSession(sesion, ej, listEl) {
-  // Basta con agregar un set "placeholder" status Pending? No — el spec pide botón + para agregar sets.
-  // Creamos un set pendiente con 0/0 para que aparezca en la lista, status Pending.
-  var placeholder = {
-    sesion_id: sesion.id,
-    ejercicio_id: ej.id,
-    peso: 0,
-    reps: 0,
-    orden: 1,
-    status: GYM_STATUS.PENDING
-  };
-  dbPut('sets', placeholder).then(function() {
-    // Borramos el placeholder después del refresh — no. Mantenerlo hasta que el usuario llene el primer set real.
+  // Auto-tag: el ejercicio queda asociado al routine_type de la sesión actual.
+  // (Si ya tenía otro tipo, se sobreescribe — última rutina en que se usó manda.)
+  var routine = sesion.routine_type;
+  var tagPromise = (routine && ej.tipo !== routine)
+    ? (function() { ej.tipo = routine; return dbPut('ejercicios', ej); })()
+    : Promise.resolve();
+
+  tagPromise.then(function() {
+    var placeholder = {
+      sesion_id: sesion.id,
+      ejercicio_id: ej.id,
+      peso: 0,
+      reps: 0,
+      orden: 1,
+      status: GYM_STATUS.PENDING
+    };
+    return dbPut('sets', placeholder);
+  }).then(function() {
     gymRefreshSessionExercises(sesion, listEl);
   });
 }
 
 // ─── Modal: Nuevo ejercicio ────────────────────────────────────────────────────
-function gymShowNewExerciseModal(onCreated) {
+function gymShowNewExerciseModal(onCreated, defaultRoutine) {
   var modal = createElement('div', { class: 'gym-modal' });
   modal.appendChild(createElement('div', { class: 'gym-modal-title' }, ['Nuevo ejercicio']));
 
@@ -727,20 +744,38 @@ function gymShowNewExerciseModal(onCreated) {
 
   modal.appendChild(createElement('div', {
     style: 'font-size:13px;color:var(--t3);margin:4px 0 8px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;'
-  }, ['TIPO']));
+  }, ['RUTINA (opcional)']));
 
-  var selectedType = { value: null };
-  var typeGrid = createElement('div', { class: 'gym-muscle-grid' });
-  GYM_TYPES.forEach(function(t) {
-    var btn = createElement('button', { class: 'gym-muscle-btn' }, [t]);
-    btn.addEventListener('click', function() {
-      selectedType.value = (selectedType.value === t) ? null : t;
-      Array.prototype.forEach.call(typeGrid.querySelectorAll('.gym-muscle-btn'), function(b) { b.classList.remove('selected'); });
-      if (selectedType.value) btn.classList.add('selected');
-    });
-    typeGrid.appendChild(btn);
+  var typeInput = createElement('input', {
+    class: 'gym-search-input',
+    type: 'text',
+    placeholder: 'Ej. Upper, Push, Leg Day…',
+    autocomplete: 'off'
   });
-  modal.appendChild(typeGrid);
+  if (defaultRoutine) typeInput.value = defaultRoutine;
+  modal.appendChild(typeInput);
+
+  // Autocomplete de rutinas existentes
+  var typeSugg = createElement('div', { class: 'gym-suggestions', style: 'max-height:120px;overflow-y:auto;' });
+  modal.appendChild(typeSugg);
+  Promise.all([dbGetAll('sesiones'), dbGetAll('ejercicios')]).then(function(r) {
+    var nameSet = {};
+    r[0].forEach(function(s) { if (s.routine_type) nameSet[s.routine_type] = true; });
+    r[1].forEach(function(e) { if (e.tipo) nameSet[e.tipo] = true; });
+    var allNames = Object.keys(nameSet).sort();
+    var renderTypes = function(term) {
+      typeSugg.innerHTML = '';
+      var t = (term || '').trim().toLowerCase();
+      var filtered = allNames.filter(function(n) { return !t || n.toLowerCase().indexOf(t) >= 0; });
+      filtered.slice(0, 5).forEach(function(n) {
+        var item = createElement('div', { class: 'gym-suggestion-item' }, [n]);
+        item.addEventListener('click', function() { typeInput.value = n; typeSugg.innerHTML = ''; });
+        typeSugg.appendChild(item);
+      });
+    };
+    renderTypes(typeInput.value);
+    typeInput.addEventListener('input', function() { renderTypes(typeInput.value); });
+  });
 
   modal.appendChild(createElement('div', {
     style: 'font-size:13px;color:var(--t3);margin:12px 0 8px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;'
@@ -767,7 +802,7 @@ function gymShowNewExerciseModal(onCreated) {
     var record = {
       nombre: nombre,
       musculo_primario: JSON.stringify(muscles),
-      tipo: selectedType.value || null,
+      tipo: typeInput.value.trim() || null,
       fecha_creacion: new Date().toISOString()
     };
     dbPut('ejercicios', record).then(function(id) {
@@ -851,7 +886,7 @@ function gymRenderEjercicios(panel) {
   searchWrap.appendChild(search);
   wrap.appendChild(searchWrap);
 
-  // Filter pills por tipo
+  // Filter pills por rutina (dinámicas, descubiertas de los ejercicios + sesiones)
   var pills = createElement('div', { class: 'gym-filter-pills' });
   var makePill = function(label, value) {
     var active = _gymLibFilter.type === value;
@@ -863,8 +898,13 @@ function gymRenderEjercicios(panel) {
     return p;
   };
   pills.appendChild(makePill('Todos', null));
-  GYM_TYPES.forEach(function(t) { pills.appendChild(makePill(t, t)); });
   wrap.appendChild(pills);
+  Promise.all([dbGetAll('ejercicios'), dbGetAll('sesiones')]).then(function(r) {
+    var nameSet = {};
+    r[0].forEach(function(e) { if (e.tipo) nameSet[e.tipo] = true; });
+    r[1].forEach(function(s) { if (s.routine_type) nameSet[s.routine_type] = true; });
+    Object.keys(nameSet).sort().forEach(function(t) { pills.appendChild(makePill(t, t)); });
+  });
 
   // Lista agrupada
   var listWrap = createElement('div', { class: 'gym-dir-list', id: 'gym-dir-list' });
@@ -898,15 +938,19 @@ function gymRenderLibraryItems(listEl, panel) {
       return true;
     });
 
-    // Agrupar por tipo (Push/Pull/Core/Legs/Sin tipo) — como el template Muscle Groups board
-    var groups = { Push: [], Pull: [], Core: [], Legs: [], 'Sin tipo': [] };
+    // Agrupar por rutina (free-text, descubierto de los datos)
+    var groups = {};
     filtered.forEach(function(e) {
       var t = e.tipo || 'Sin tipo';
       if (!groups[t]) groups[t] = [];
       groups[t].push(e);
     });
 
-    var keys = ['Push','Pull','Core','Legs','Sin tipo'];
+    var keys = Object.keys(groups).sort(function(a, b) {
+      if (a === 'Sin tipo') return 1;
+      if (b === 'Sin tipo') return -1;
+      return a.localeCompare(b);
+    });
     var hasAny = false;
     keys.forEach(function(k) {
       var items = (groups[k] || []).sort(function(a, b) { return a.nombre.localeCompare(b.nombre); });

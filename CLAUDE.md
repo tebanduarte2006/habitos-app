@@ -69,10 +69,11 @@ cardio_registros   { id, sesion_id }            ← Deprecado, no usar
 
 **Convenciones:**
 - `status` en sets: `"Pending"` | `"Done"` | `"Skipped"` (aditivo — sets viejos sin campo se renderizan como `"Done"`)
-- `tipo` en ejercicios: `"Push"` | `"Pull"` | `"Core"` | `"Legs"` | `null`
+- `tipo` en ejercicios: **free-text** = nombre de la rutina en que se usó por última vez (ej. `"Upper"`, `"Push"`, `"Leg Day"`) | `null`. Antes era enum fijo Push/Pull/Core/Legs — ya no.
+- `routine_type` en sesiones: **free-text** definido por el usuario al iniciar sesión. Es la "variable" que une sesión + ejercicios. Al adjuntar un ejercicio a una sesión, su `tipo` se sobreescribe con el `routine_type` actual.
 - `musculo_primario`: `JSON.stringify(["Pecho", ...])` → parsear con `gymParseMuscleArr()` en gym.js
 - Grupos musculares válidos: Pecho, Espalda, Hombros, Bíceps, Tríceps, Piernas, Core, Glúteos
-- Peso siempre en **kg** (toggle lbs/kg retirado)
+- Peso canónico en DB siempre **kg**. Display siempre **lbs**. Cada input `+ Set` tiene toggle lbs/kg para indicar la unidad de entrada (default lbs); el programa convierte a kg para guardar.
 
 ---
 
@@ -88,19 +89,20 @@ Implementado en `renderers/gym.js`. Entry point: `renderGymModule(container)` �
 
 **Tab 1 · Entrenar (Workout Planner)**
 - Sin sesión activa: últimas 3 sesiones finalizadas + CTA "▶ Iniciar sesión"
-- Al iniciar: modal de tipo de rutina → Push / Pull / Legs / Full Body / Custom. Nombre auto: `Workout #N · <Tipo>`
-- Sesión activa: header (nombre + fecha + cronómetro + status chip) + lista de ejercicio-cards + "+ Agregar ejercicio" + "Finalizar sesión"
-- Cada set: `Set #N | peso kg × reps | chip status | ×-delete`. Chip es clicable: cicla Pending🔲 → Done✅ → Skipped❌
+- Al iniciar: modal con **input free-text** + autocomplete de rutinas previas (descubiertas de `sesiones.routine_type` ∪ `ejercicios.tipo`). El usuario escribe el nombre que quiera ("Upper", "Push", lo que sea). Nombre auto de la sesión: `Workout #N · <nombre>`. **Sin presets fijos.**
+- Sesión activa: header (nombre + fecha + cronómetro + status chip) + lista de ejercicio-cards + "+ Agregar ejercicio" + "Finalizar sesión". **Sin toggle global de unidad** (se removió del header).
+- Cada set: `Set #N | peso lbs × reps | chip status | ×-delete`. Chip es clicable: cicla Pending🔲 → Done✅ → Skipped❌
+- **Add-set row:** `[Peso] [lbs/kg toggle] [Reps] [+ Set]`. Toggle por-input default lbs; al pulsar cambia a kg; el peso se convierte a kg antes de guardar (`gymInputToKg`).
 - Bajo nombre del ejercicio: hint "Última vez: X kg × Y reps" (consulta `sets` anteriores del mismo `ejercicio_id`)
 - Rest timer: al confirmar set nuevo, cuenta regresiva 90s (interruptible). Vibración al terminar.
 - Modal de reanudación si hay sesión con `finalizada=false`: Reanudar / Guardar como está / Eliminar
 - Ejercicio en sesión: sets placeholder status=Pending creados al agregar; se borran los 0/0 al finalizar
 
 **Tab 2 · Ejercicios (Exercise Library)**
-- Search input + filter pills: Todos / Push / Pull / Core / Legs
-- Lista agrupada por `tipo` (header con count). Sin tipo → "Sin tipo"
-- Tap en ejercicio → detalle: nombre, tipo, músculos, historial por sesión (fecha + count×reps a X kg, desc por fecha)
-- CTA "+ Crear ejercicio": nombre (obligatorio) + tipo (opcional) + músculo primario (multi-select, ≥1 requerido)
+- Search input + filter pills **dinámicas**: "Todos" + una pill por cada rutina existente (descubiertas de `ejercicios.tipo` ∪ `sesiones.routine_type`). Sin presets fijos.
+- Lista agrupada por `tipo` (header con count). Sin tipo → "Sin tipo" (al final)
+- Tap en ejercicio → detalle: nombre, tipo, músculos, historial por sesión (fecha + count×reps a X lbs, desc por fecha)
+- CTA "+ Crear ejercicio": nombre (obligatorio) + **rutina** (input free-text con autocomplete, opcional) + músculo primario (multi-select, ≥1 requerido). Cuando se crea desde una sesión activa, la rutina viene prellenada con `sesion.routine_type`.
 
 **Tab 3 · Progresión**
 - Selector de ejercicio → PR card (peso máx + reps) + mini-chart CSS (divs, últimas 12 sesiones) + tabla Fecha/Mejor set/Volumen
@@ -125,7 +127,7 @@ registerModule({ id:'mental', label:'Mental', icon:'🧠', type:'interactive'   
 ## sw.js — cache actual
 
 ```js
-var CACHE = "habitos-20260421-1";
+var CACHE = "habitos-20260421-3";
 var ASSETS = ["./","./index.html","./styles.css","./app.js","./db.js",
               "./manifest.json","./renderers/gym.js","./modules/gym.json","./modules/mental.js"];
 ```
@@ -196,3 +198,4 @@ git push origin main
 | Fecha | Commits | Cambio |
 |-------|---------|--------|
 | 2026-04-21 | `6dffb44`, `da82ec2`, `9e08b26`, `862766b` | Rebuild gym con template Benny Workout Tracker. Eliminados skincare/oral/kegel. Status chips Pending/Done/Skipped en sets. Rest timer. Export/Import v2. CLAUDE.md creado. INSTRUCCIONES.md reescrito. sw.js bumped a `20260421-1`. Auth GitHub configurada con `gh auth login`. |
+| 2026-04-21 | (pending) | Rutinas free-text definidas por usuario (sin presets Push/Pull/Legs/Full Body/Custom). `routine_type` y `tipo` ahora son free-text con autocomplete. Pills de Ejercicios dinámicas. Display global en lbs (sin toggle global). Toggle lbs/kg por-input en cada add-set row con conversión a kg para guardar. sw.js → `20260421-3`. |
