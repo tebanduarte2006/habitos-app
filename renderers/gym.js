@@ -21,6 +21,38 @@ var _gymTimerId = null;
 var _gymRestTimerId = null;
 var _gymRestSeconds = 90;
 var _gymRestRemaining = 0;
+// Session cuya prompt de "Reanudar" ya fue resuelta en este page load.
+// Permite cambiar de tab y volver sin re-disparar el modal.
+var _gymAcknowledgedSession = null;
+
+// ─── Unidades (kg canonical en DB, display configurable) ───────────────────────
+var GYM_UNIT_KEY = 'gym_unit';
+var KG_PER_LB = 0.45359237;
+function gymGetUnit() {
+  try { var v = localStorage.getItem(GYM_UNIT_KEY); return v === 'kg' ? 'kg' : 'lbs'; }
+  catch (e) { return 'lbs'; }
+}
+function gymSetUnit(u) {
+  try { localStorage.setItem(GYM_UNIT_KEY, u === 'kg' ? 'kg' : 'lbs'); } catch (e) {}
+}
+function gymKgToDisplay(kg) {
+  var n = Number(kg);
+  if (!isFinite(n)) return null;
+  if (gymGetUnit() === 'lbs') return Math.round(n / KG_PER_LB * 10) / 10;
+  return Math.round(n * 10) / 10;
+}
+function gymDisplayToKg(value, unit) {
+  var n = Number(value);
+  if (!isFinite(n)) return NaN;
+  return (unit || gymGetUnit()) === 'lbs' ? n * KG_PER_LB : n;
+}
+function gymFormatWeight(kg) {
+  var d = gymKgToDisplay(kg);
+  if (d === null) return '—';
+  // Quitar ".0" final
+  var s = (Math.round(d * 10) / 10).toString();
+  return s + ' ' + gymGetUnit();
+}
 
 // ─── Utilidades ────────────────────────────────────────────────────────────────
 function gymParseMuscleArr(raw) {
@@ -143,9 +175,14 @@ function gymRenderEntrenar(panel) {
   dbGetAll('sesiones').then(function(sesiones) {
     var activa = sesiones.find(function(s) { return s.finalizada === false; });
     if (activa) {
-      // Si hay una sesión sin finalizar, preguntar si reanudar
-      gymPromptResume(panel, activa, sesiones);
+      // Si el usuario ya resolvió el prompt en este page load, ir directo a la sesión.
+      if (_gymAcknowledgedSession === activa.id) {
+        gymRenderActiveSession(panel, activa);
+      } else {
+        gymPromptResume(panel, activa, sesiones);
+      }
     } else {
+      _gymAcknowledgedSession = null;
       gymRenderStartScreen(panel, sesiones);
     }
   });
@@ -167,6 +204,7 @@ function gymPromptResume(panel, activa, sesiones) {
   var btnResume = createElement('button', { class: 'gym-btn-primary' }, ['▶ Reanudar']);
   btnResume.addEventListener('click', function() {
     overlay.remove();
+    _gymAcknowledgedSession = activa.id;
     gymRenderActiveSession(panel, activa);
   });
 
@@ -288,6 +326,7 @@ function gymCreateSession(panel, routineType) {
     };
     dbPut('sesiones', sesion).then(function(id) {
       sesion.id = id;
+      _gymAcknowledgedSession = id;
       gymRenderActiveSession(panel, sesion);
     });
   });
@@ -309,10 +348,19 @@ function gymRenderActiveSession(panel, sesion) {
   titleRow.appendChild(titleBlock);
   titleRow.appendChild(gymStatusChip(GYM_STATUS.PENDING));
 
+  var bottomRow = createElement('div', {
+    style: 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:6px;'
+  });
   var timerEl = createElement('div', { class: 'gym-timer', id: 'gym-session-timer' }, ['0:00']);
+  bottomRow.appendChild(timerEl);
+  bottomRow.appendChild(gymBuildUnitToggle(function() {
+    // Al cambiar unidad, re-render la lista para reflejar valores
+    var listEl = document.getElementById('gym-ex-list');
+    if (listEl) gymRefreshSessionExercises(sesion, listEl);
+  }));
 
   header.appendChild(titleRow);
-  header.appendChild(timerEl);
+  header.appendChild(bottomRow);
   panel.appendChild(header);
 
   gymStartSessionTimer(sesion.timestamp_inicio);
@@ -396,6 +444,23 @@ function gymRefreshSessionExercises(sesion, listEl) {
   });
 }
 
+function gymBuildUnitToggle(onChange) {
+  var wrap = createElement('div', { class: 'gym-unit-toggle' });
+  var btnLbs = createElement('button', {}, ['lbs']);
+  var btnKg  = createElement('button', {}, ['kg']);
+  var paint = function() {
+    var u = gymGetUnit();
+    btnLbs.classList.toggle('active', u === 'lbs');
+    btnKg.classList.toggle('active', u === 'kg');
+  };
+  btnLbs.addEventListener('click', function() { gymSetUnit('lbs'); paint(); if (onChange) onChange(); });
+  btnKg.addEventListener('click',  function() { gymSetUnit('kg');  paint(); if (onChange) onChange(); });
+  wrap.appendChild(btnLbs);
+  wrap.appendChild(btnKg);
+  paint();
+  return wrap;
+}
+
 function gymBuildExerciseCard(sesion, ej, sets, listEl) {
   var card = createElement('div', { class: 'gym-exercise-card' });
 
@@ -418,10 +483,10 @@ function gymBuildExerciseCard(sesion, ej, sets, listEl) {
 
   // Hint: última vez
   gymGetLastSetForEjercicio(ej.id, sesion.id).then(function(last) {
-    if (last) {
+    if (last && isFinite(Number(last.peso)) && isFinite(Number(last.reps))) {
       var hint = createElement('div', {
         style: 'font-size:12px;color:var(--t3);margin-bottom:10px;'
-      }, ['Última vez: ' + last.peso + ' kg × ' + last.reps + ' reps']);
+      }, ['Última vez: ' + gymFormatWeight(last.peso) + ' × ' + last.reps + ' reps']);
       card.insertBefore(hint, card.children[1] || null);
     }
   });
@@ -435,18 +500,22 @@ function gymBuildExerciseCard(sesion, ej, sets, listEl) {
 
   // Agregar set
   var addSetRow = createElement('div', { class: 'gym-add-set-row' });
-  var pesoInput = createElement('input', { class: 'gym-input-small', type: 'number', placeholder: 'Peso', step: '0.5' });
+  var unitLabel = gymGetUnit();
+  var pesoInput = createElement('input', { class: 'gym-input-small', type: 'number', placeholder: 'Peso (' + unitLabel + ')', step: '0.5' });
   var repsInput = createElement('input', { class: 'gym-input-small', type: 'number', placeholder: 'Reps', step: '1' });
   var confirmBtn = createElement('button', { class: 'gym-confirm-set-btn' }, ['+ Set']);
   confirmBtn.addEventListener('click', function() {
-    var peso = parseFloat(pesoInput.value);
+    var inputVal = parseFloat(pesoInput.value);
     var reps = parseInt(repsInput.value, 10);
-    if (!(peso >= 0) || !(reps > 0)) { showToast('Peso y reps requeridos'); return; }
+    if (!(inputVal >= 0) || !(reps > 0)) { showToast('Peso y reps requeridos'); return; }
+    var pesoKg = gymDisplayToKg(inputVal);
+    // Guardar con 3 decimales para no perder precisión en la conversión ida-vuelta
+    pesoKg = Math.round(pesoKg * 1000) / 1000;
     var orden = sets.length > 0 ? Math.max.apply(null, sets.map(function(s) { return s.orden || 0; })) + 1 : 1;
     var newSet = {
       sesion_id: sesion.id,
       ejercicio_id: ej.id,
-      peso: peso,
+      peso: pesoKg,
       reps: reps,
       orden: orden,
       status: GYM_STATUS.DONE
@@ -474,9 +543,11 @@ function gymBuildSetRow(sesion, ej, set, setNum, listEl) {
     style: 'font-size:14px;color:var(--t2);font-weight:500;min-width:54px;'
   }, ['Set #' + setNum]);
 
+  var pesoStr = isFinite(Number(set.peso)) ? gymFormatWeight(set.peso) : '—';
+  var repsStr = isFinite(Number(set.reps)) ? set.reps : '—';
   var vals = createElement('div', {
     style: 'flex:1;font-size:15px;color:var(--t1);font-weight:500;'
-  }, [set.peso + ' kg × ' + set.reps + ' reps']);
+  }, [pesoStr + ' × ' + repsStr + ' reps']);
 
   // Status toggle: Pending → Done → Skipped → Pending
   var chip = gymStatusChip(status);
@@ -587,9 +658,22 @@ function gymShowAddExerciseModal(sesion, listEl) {
   dbGetAll('ejercicios').then(function(all) {
     var render = function(term) {
       suggestions.innerHTML = '';
+      var t = (term || '').trim();
+      if (!t) {
+        suggestions.appendChild(createElement('div', {
+          style: 'padding:14px 12px;color:var(--t3);font-size:13px;text-align:center;'
+        }, ['Escribe para buscar ejercicios.']));
+        return;
+      }
       var filtered = all.filter(function(e) {
-        return !term || e.nombre.toLowerCase().indexOf(term.toLowerCase()) >= 0;
-      }).sort(function(a, b) { return a.nombre.localeCompare(b.nombre); }).slice(0, 10);
+        return e.nombre.toLowerCase().indexOf(t.toLowerCase()) >= 0;
+      }).sort(function(a, b) { return a.nombre.localeCompare(b.nombre); }).slice(0, 8);
+      if (filtered.length === 0) {
+        suggestions.appendChild(createElement('div', {
+          style: 'padding:12px;color:var(--t3);font-size:13px;text-align:center;'
+        }, ['Sin coincidencias. Usa "Crear ejercicio nuevo".']));
+        return;
+      }
       filtered.forEach(function(e) {
         var muscles = gymParseMuscleArr(e.musculo_primario).join(' · ');
         var item = createElement('div', { class: 'gym-suggestion-item' }, [
@@ -602,11 +686,6 @@ function gymShowAddExerciseModal(sesion, listEl) {
         });
         suggestions.appendChild(item);
       });
-      if (filtered.length === 0) {
-        suggestions.appendChild(createElement('div', {
-          style: 'padding:12px;color:var(--t3);font-size:13px;text-align:center;'
-        }, ['Sin coincidencias. Usa "Crear ejercicio nuevo".']));
-      }
     };
     render('');
     search.addEventListener('input', function() { render(search.value); });
@@ -878,7 +957,12 @@ function gymRenderEjercicioDetail(panel, ej) {
   }, ['HISTORIAL']));
 
   Promise.all([dbGetAll('sets'), dbGetAll('sesiones')]).then(function(r) {
-    var sets = r[0].filter(function(s) { return s.ejercicio_id === ej.id && s.status !== GYM_STATUS.PENDING; });
+    var sets = r[0].filter(function(s) {
+      return s.ejercicio_id === ej.id
+        && s.status !== GYM_STATUS.PENDING
+        && isFinite(Number(s.peso))
+        && isFinite(Number(s.reps));
+    });
     var sesiones = {};
     r[1].forEach(function(s) { sesiones[s.id] = s; });
 
@@ -911,7 +995,7 @@ function gymRenderEjercicioDetail(panel, ej) {
     rows.forEach(function(r) {
       var item = createElement('div', { class: 'gym-detail-table-row' }, [
         createElement('div', { style: 'flex:1;color:var(--t1);font-size:15px;font-weight:500;' }, [gymFormatDateShort(r.fecha)]),
-        createElement('div', { style: 'color:var(--t2);font-size:14px;' }, [r.count + '×' + r.best.reps + ' a ' + r.best.peso + ' kg'])
+        createElement('div', { style: 'color:var(--t2);font-size:14px;' }, [r.count + '×' + r.best.reps + ' a ' + gymFormatWeight(r.best.peso)])
       ]);
       histWrap.appendChild(item);
     });
@@ -995,7 +1079,12 @@ function gymRenderProgresion(panel) {
 function gymRenderProgresionDetail(container, ej) {
   container.innerHTML = '';
   Promise.all([dbGetAll('sets'), dbGetAll('sesiones')]).then(function(r) {
-    var sets = r[0].filter(function(s) { return s.ejercicio_id === ej.id && s.status !== GYM_STATUS.PENDING; });
+    var sets = r[0].filter(function(s) {
+      return s.ejercicio_id === ej.id
+        && s.status !== GYM_STATUS.PENDING
+        && isFinite(Number(s.peso))
+        && isFinite(Number(s.reps));
+    });
     var sesiones = {};
     r[1].forEach(function(s) { sesiones[s.id] = s; });
 
@@ -1007,7 +1096,7 @@ function gymRenderProgresionDetail(container, ej) {
     }
 
     // PR
-    var pr = sets.reduce(function(max, s) { return s.peso > max.peso ? s : max; }, sets[0]);
+    var pr = sets.reduce(function(max, s) { return Number(s.peso) > Number(max.peso) ? s : max; }, sets[0]);
 
     // Agrupar por sesion
     var bySesion = {};
@@ -1032,12 +1121,12 @@ function gymRenderProgresionDetail(container, ej) {
         createElement('div', { class: 'gym-pr-name' }, ['Personal Record']),
         createElement('div', { class: 'gym-pr-sub' }, [pr.reps + ' reps'])
       ]),
-      createElement('div', { class: 'gym-pr-value' }, [pr.peso + ' kg'])
+      createElement('div', { class: 'gym-pr-value' }, [gymFormatWeight(pr.peso)])
     ]);
     container.appendChild(prCard);
 
     // Mini chart (bars)
-    var maxPeso = Math.max.apply(null, rows.map(function(r) { return r.best.peso; }));
+    var maxPeso = Math.max.apply(null, rows.map(function(r) { return Number(r.best.peso) || 0; })) || 1;
     var chartWrap = createElement('div', {
       style: 'margin:6px 20px 12px;padding:14px;background:var(--bg-card);border-radius:var(--radius-md);'
     });
@@ -1048,10 +1137,11 @@ function gymRenderProgresionDetail(container, ej) {
       style: 'display:flex;align-items:flex-end;gap:6px;height:90px;'
     });
     rows.slice(-12).forEach(function(r) {
-      var h = Math.max(6, Math.round((r.best.peso / maxPeso) * 100));
+      var p = Number(r.best.peso) || 0;
+      var h = Math.max(6, Math.round((p / maxPeso) * 100));
       var bar = createElement('div', {
         style: 'flex:1;background:var(--accent);border-radius:4px 4px 2px 2px;opacity:0.85;height:' + h + '%;min-height:6px;',
-        title: gymFormatDateShort(r.fecha) + ': ' + r.best.peso + ' kg'
+        title: gymFormatDateShort(r.fecha) + ': ' + gymFormatWeight(p)
       });
       chart.appendChild(bar);
     });
@@ -1070,8 +1160,8 @@ function gymRenderProgresionDetail(container, ej) {
     rows.slice().reverse().forEach(function(r) {
       var row = createElement('div', { class: 'gym-detail-table-row' }, [
         createElement('div', { style: 'flex:1;color:var(--t1);font-size:14px;' }, [gymFormatDateShort(r.fecha)]),
-        createElement('div', { style: 'flex:1;color:var(--t2);font-size:14px;' }, [r.best.peso + ' × ' + r.best.reps]),
-        createElement('div', { style: 'flex:1;color:var(--t2);font-size:14px;text-align:right;' }, [Math.round(r.volumen) + ' kg'])
+        createElement('div', { style: 'flex:1;color:var(--t2);font-size:14px;' }, [gymFormatWeight(r.best.peso) + ' × ' + r.best.reps]),
+        createElement('div', { style: 'flex:1;color:var(--t2);font-size:14px;text-align:right;' }, [gymFormatWeight(r.volumen)])
       ]);
       tableWrap.appendChild(row);
     });
