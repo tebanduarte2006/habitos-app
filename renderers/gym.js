@@ -11,7 +11,15 @@
 // Los campos con "?" son aditivos — registros antiguos sin ellos siguen funcionando.
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
-var GYM_MUSCLE_GROUPS = ['Pecho','Espalda','Hombros','Bíceps','Tríceps','Piernas','Core','Glúteos'];
+var GYM_MUSCLE_GROUPS = [
+  'Pecho','Pecho superior','Pecho inferior',
+  'Espalda','Dorsales','Trapecio','Romboides','Lumbar',
+  'Hombros','Hombro frontal','Hombro lateral','Hombro posterior',
+  'Bíceps','Tríceps','Antebrazo',
+  'Core','Abdominales','Oblicuos',
+  'Piernas','Cuádriceps','Isquiotibiales','Gemelos','Aductores','Abductores','Tibial',
+  'Glúteos','Cuello'
+];
 // Tipos de rutina = nombres definidos por el usuario (free-text). Se descubren dinámicamente.
 var GYM_STATUS = { PENDING: 'Pending', DONE: 'Done', SKIPPED: 'Skipped' };
 var GYM_STATUS_ICON = { Pending: '🔲', Done: '✅', Skipped: '❌' };
@@ -370,7 +378,6 @@ function gymRenderActiveSession(panel, sesion) {
     createElement('div', { style: 'font-size:13px;color:var(--t2);margin-top:2px;' }, [gymFormatDateLong(sesion.fecha)])
   ]);
   titleRow.appendChild(titleBlock);
-  titleRow.appendChild(gymStatusChip(GYM_STATUS.PENDING));
 
   var bottomRow = createElement('div', {
     style: 'display:flex;align-items:center;justify-content:flex-start;gap:12px;margin-top:6px;'
@@ -493,9 +500,12 @@ function gymBuildExerciseCard(sesion, ej, sets, listEl) {
     }
   });
 
-  // Sets rows
-  sets.sort(function(a, b) { return (a.orden || a.id) - (b.orden || b.id); });
-  sets.forEach(function(st, idx) {
+  // Sets rows — ocultar placeholders Pending 0/0 (solo sirven para mantener el ejercicio adjunto)
+  var visibleSets = sets.filter(function(st) {
+    return !(st.status === GYM_STATUS.PENDING && Number(st.peso) === 0 && Number(st.reps) === 0);
+  });
+  visibleSets.sort(function(a, b) { return (a.orden || a.id) - (b.orden || b.id); });
+  visibleSets.forEach(function(st, idx) {
     var row = gymBuildSetRow(sesion, ej, st, idx + 1, listEl);
     card.appendChild(row);
   });
@@ -783,15 +793,58 @@ function gymShowNewExerciseModal(onCreated, defaultRoutine) {
 
   var selectedMuscles = {};
   var muscleGrid = createElement('div', { class: 'gym-muscle-grid' });
-  GYM_MUSCLE_GROUPS.forEach(function(m) {
-    var btn = createElement('button', { class: 'gym-muscle-btn' }, [m]);
-    btn.addEventListener('click', function() {
-      if (selectedMuscles[m]) { delete selectedMuscles[m]; btn.classList.remove('selected'); }
-      else { selectedMuscles[m] = true; btn.classList.add('selected'); }
-    });
-    muscleGrid.appendChild(btn);
-  });
   modal.appendChild(muscleGrid);
+
+  var buildMuscleButtons = function(list) {
+    muscleGrid.innerHTML = '';
+    list.forEach(function(m) {
+      var btn = createElement('button', { class: 'gym-muscle-btn' + (selectedMuscles[m] ? ' selected' : '') }, [m]);
+      btn.addEventListener('click', function() {
+        if (selectedMuscles[m]) { delete selectedMuscles[m]; btn.classList.remove('selected'); }
+        else { selectedMuscles[m] = true; btn.classList.add('selected'); }
+      });
+      muscleGrid.appendChild(btn);
+    });
+  };
+
+  // Render inicial con lista base; luego fusiona con músculos ya registrados en DB
+  buildMuscleButtons(GYM_MUSCLE_GROUPS);
+  dbGetAll('ejercicios').then(function(all) {
+    var seen = {};
+    GYM_MUSCLE_GROUPS.forEach(function(m) { seen[m.toLowerCase()] = m; });
+    var extra = [];
+    all.forEach(function(e) {
+      gymParseMuscleArr(e.musculo_primario).forEach(function(m) {
+        if (!m) return;
+        var key = String(m).toLowerCase();
+        if (!seen[key]) { seen[key] = m; extra.push(m); }
+      });
+    });
+    extra.sort(function(a, b) { return a.localeCompare(b); });
+    buildMuscleButtons(GYM_MUSCLE_GROUPS.concat(extra));
+  });
+
+  // Añadir músculo custom
+  var customWrap = createElement('div', { style: 'display:flex;gap:8px;margin-top:8px;' });
+  var customInput = createElement('input', {
+    class: 'gym-search-input',
+    type: 'text',
+    placeholder: '+ Otro músculo…',
+    style: 'flex:1;'
+  });
+  var customAdd = createElement('button', { class: 'gym-btn-secondary', style: 'margin:0;padding:0 14px;min-width:auto;' }, ['Añadir']);
+  customAdd.addEventListener('click', function() {
+    var v = customInput.value.trim();
+    if (!v) return;
+    selectedMuscles[v] = true;
+    customInput.value = '';
+    var currentList = Array.prototype.map.call(muscleGrid.children, function(b) { return b.textContent; });
+    if (currentList.indexOf(v) < 0) currentList.push(v);
+    buildMuscleButtons(currentList);
+  });
+  customWrap.appendChild(customInput);
+  customWrap.appendChild(customAdd);
+  modal.appendChild(customWrap);
 
   var createBtn = createElement('button', { class: 'gym-btn-primary' }, ['Crear']);
   createBtn.addEventListener('click', function() {
