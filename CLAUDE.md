@@ -144,10 +144,23 @@ Implementado en `renderers/gym.js`. Entry point: `renderGymModule(container)` (r
 
 ### Tab 3 · Progresión
 
-- Selector de ejercicio → PR card (peso máx + reps) + mini-chart CSS (divs, últimas 12 sesiones) + tabla Fecha/Mejor set/Volumen.
-- Sección "Sesiones completadas": lista cronológica reversa (nombre, fecha, count sets, duración).
+**Vista lista (entry point del tab):**
+- Header "EJERCICIOS · TAP PARA VER PROGRESIÓN" + lista de cards, una por ejercicio.
+- Cada card muestra: nombre, músculos, sub-línea `<n> sesiones · PR <peso> × <reps>`. Tap → vista detalle.
+- Orden: ejercicios con historial primero (más reciente primero por `timestamp_inicio` del último set), después sub-header "SIN HISTORIAL" con los ejercicios sin uso en gris (opacity 0.45).
+- Al final del tab: separador + botones **📤 Exportar datos** y **📥 Importar datos**.
+- **Sección "Sesiones completadas" — eliminada** (era remanente del template Benny y duplicaba info).
+
+**Vista detalle por ejercicio (`gymRenderProgresionDetail`):**
+- Botón "‹ Progresión" arriba para volver.
+- Card de PR (gradiente acento sutil): `🏆 Personal Record` + `<peso> × <reps>` grande + fecha del PR + línea inferior con "1RM estimado: X · fórmula Epley".
+- **Gráfica SVG inline** (`gymBuildSvgChart`): área + línea + puntos del peso máx por sesión, últimas 10 sesiones. Eje X temporal (sesiones cronológicas), Y peso. 3 grid lines horizontales sutiles. Etiquetas debajo: fecha izquierda · `min/máx` centro · fecha derecha. Al hover en un punto, `<title>` muestra fecha + peso. Acento naranja `#FF9F0A`.
+- Lista **"ÚLTIMAS N SESIONES"**: cada sesión es un `<details>` colapsable. Header del summary: `<fecha larga> · <routine_type>` + sub-línea `Mejor: <peso> × <reps> · Vol: <peso×reps total>`. Expandido: lista `Set #N · <peso> × <reps>` con badge **🏆 PR** en sets que fueron récord en ese momento (running max sobre orden cronológico de todas las sesiones, no solo las últimas 10).
+- Sets con `status='Skipped'` se marcan con badge "skipped" rojo en el detalle.
+
+**Export / Import (sin cambios funcionales):**
 - **Export:** descarga `habitos-gym-backup-YYYY-MM-DD.json` con `{ version:2, exportDate, sesiones, ejercicios, sets }`.
-- **Import:** lee JSON, valida estructura, modal de confirmación, fusiona por ID (sobrescribe duplicados).
+- **Import:** lee JSON, valida estructura (`Array.isArray` en cada lista + `version != null`), modal de confirmación, fusiona por ID (`store.put` sobrescribe duplicados). Tx scope: `['sesiones','ejercicios','sets']` — nunca toca `flow_*` ni `preferencias`. Verificado por simulación 2026-04-27.
 
 ---
 
@@ -211,7 +224,7 @@ git push origin main
 
 ## 11. Historial de cambios estructurales
 
-> **Formato (obligatorio).** Una fila por cambio. Si el commit aún no existe, usa `(pending)` y reemplázalo por el SHA tras el push. Ver skill `habitos-changelog` para guía completa.
+> **Formato (obligatorio).** Una fila por cambio. Si el commit aún no existe, usa `(pending)` y reemplázalo por el SHA tras el push. Workflow completo en la skill global `habitos-app-workflow` (`~/.claude/skills/habitos-app-workflow/SKILL.md`).
 >
 > | Fecha | Commits | Cambio |
 > |-------|---------|--------|
@@ -222,4 +235,5 @@ git push origin main
 | 2026-04-21 | `6dffb44`, `da82ec2`, `9e08b26`, `862766b` | Rebuild gym con template Benny Workout Tracker. Eliminados skincare/oral/kegel. Status chips Pending/Done/Skipped en sets. Rest timer. Export/Import v2. CLAUDE.md creado. INSTRUCCIONES.md reescrito. `sw.js → habitos-20260421-1`. Auth GitHub configurada con `gh auth login`. |
 | 2026-04-21 | `dff4da5` | Rutinas free-text (sin presets Push/Pull/Legs/Full Body/Custom). `routine_type` y `tipo` ahora son free-text con autocomplete. Pills de Ejercicios dinámicas. Display global en lbs (sin toggle global). Toggle lbs/kg por-input en cada add-set row con conversión a kg. `sw.js → habitos-20260421-3`. |
 | 2026-04-21 | `ce1cbd0` | Limpieza de UI gym: removido chip Pending del header. Placeholder Pending 0/0 dejó de renderizarse. Lista de músculos primarios expandida a 26 grupos + descubrimiento dinámico desde DB + input "+ Otro músculo…". `sw.js → habitos-20260421-4`. |
-| 2026-04-27 | `47ed725` | **Tab Entrenar:** reemplazado el hint "Última vez:" por un `<details>` expandible "▸ Última sesión" en cada ejercicio-card que lista todos los sets de la sesión previa más reciente (fecha + Set #N · X lbs × Y reps), o "N/A — sin registros previos". Nueva función `gymGetLastSessionSetsForEjercicio()`. **Modal Nuevo ejercicio:** reemplazado el grid largo de músculos por un search-picker (input + chips de seleccionados + sugerencias filtradas + opción "+ Crear &lt;término&gt;" para custom). Pool = `GYM_MUSCLE_GROUPS` base + descubiertos en DB. **Docs:** CLAUDE.md reorganizado en secciones numeradas; INSTRUCCIONES.md alineado con estado actual. **Skill nueva:** `.claude/skills/habitos-changelog/SKILL.md`. `sw.js → habitos-20260427-1`. |
+| 2026-04-27 | `47ed725`, `c430010` | **Tab Entrenar:** reemplazado el hint "Última vez:" por un `<details>` expandible "▸ Última sesión" en cada ejercicio-card que lista todos los sets de la sesión previa más reciente (fecha + Set #N · X lbs × Y reps), o "N/A — sin registros previos". Nueva función `gymGetLastSessionSetsForEjercicio()`. **Modal Nuevo ejercicio:** reemplazado el grid largo de músculos por un search-picker (input + chips de seleccionados + sugerencias filtradas + opción "+ Crear &lt;término&gt;" para custom). Pool = `GYM_MUSCLE_GROUPS` base + descubiertos en DB. **Docs:** CLAUDE.md reorganizado en secciones numeradas; INSTRUCCIONES.md alineado con estado actual. **Skill (preliminar):** `.claude/skills/habitos-changelog/SKILL.md` (reemplazada el 2026-04-27 por skill global). `sw.js → habitos-20260427-1`. |
+| 2026-04-27 | `(pending)` | **Tab Progresión — rework total:** vista lista de ejercicios (más reciente primero, sin historial al final en gris) → detalle por ejercicio con (a) PR card con peso absoluto + reps + fecha + 1RM estimado Epley, (b) gráfica SVG inline (área + línea + puntos, últimas 10 sesiones, peso máx), (c) lista de últimas 10 sesiones como `<details>` colapsables con sets marcados con badge 🏆 PR cuando fueron récord en ese momento (running max). Eliminada la sección "Sesiones completadas" (remanente Benny). Export/Import preservados al final del tab; verificados con simulación de roundtrip JSON + math PR/1RM Epley + PR-tracking + scope tx (no toca flow_*) → 22/22 tests pasaron. Nuevas funciones: `gymBuildProgRow`, `gymBuildSvgChart`, `gymBuildSessionDetails`. **Skill nueva (global):** `~/.claude/skills/habitos-app-workflow/SKILL.md` que se activa en cualquier conversación cuando el usuario pide cambios sobre la PWA Hábitos; impone entrevista exhaustiva proporcional al tamaño + recomendaciones + checklist + bumpeo de sw.js + changelog + commit/push. Reemplaza la skill local `habitos-changelog` (eliminada). `sw.js → habitos-20260427-2`. |

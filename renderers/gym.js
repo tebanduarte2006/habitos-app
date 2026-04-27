@@ -1218,44 +1218,26 @@ function gymRenderEjercicioDetail(panel, ej) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// TAB 3 — PROGRESIÓN (Completed Workouts + PR + chart)
+// TAB 3 — PROGRESIÓN (Lista de ejercicios + detalle por ejercicio + Export/Import)
 // ══════════════════════════════════════════════════════════════════════════════
 function gymRenderProgresion(panel) {
   panel.innerHTML = '';
+  var wrap = createElement('div', { style: 'padding: 12px 0 80px;' });
 
-  var wrap = createElement('div', { style: 'padding: 12px 0 20px;' });
-
-  // Sección: Selector de ejercicio
   wrap.appendChild(createElement('div', {
-    style: 'font-size:13px;color:var(--t3);text-transform:uppercase;letter-spacing:0.5px;padding:0 20px 8px;font-weight:600;'
-  }, ['PROGRESIÓN POR EJERCICIO']));
+    style: 'font-size:13px;color:var(--t3);text-transform:uppercase;letter-spacing:0.5px;padding:0 20px 10px;font-weight:600;'
+  }, ['EJERCICIOS · TAP PARA VER PROGRESIÓN']));
 
-  var selectorWrap = createElement('div', { style: 'padding: 0 20px 14px;' });
-  var select = createElement('select', {
-    class: 'gym-search-input',
-    style: 'appearance:none;background:var(--bg2);color:var(--t1);padding:12px 14px;border-radius:var(--radius-sm);border:1px solid var(--sep);width:100%;font-size:15px;'
+  var listWrap = createElement('div', {
+    style: 'padding: 0 20px;display:flex;flex-direction:column;gap:8px;'
   });
-  selectorWrap.appendChild(select);
-  wrap.appendChild(selectorWrap);
+  wrap.appendChild(listWrap);
 
-  var detailWrap = createElement('div', { id: 'gym-prog-detail' });
-  wrap.appendChild(detailWrap);
-
-  // Sección: Completed Workouts
+  // Export / Import al final
   wrap.appendChild(createElement('div', {
-    style: 'font-size:13px;color:var(--t3);text-transform:uppercase;letter-spacing:0.5px;padding:20px 20px 8px;font-weight:600;'
-  }, ['SESIONES COMPLETADAS']));
-
-  var completedWrap = createElement('div', { style: 'padding: 0 20px;' });
-  wrap.appendChild(completedWrap);
-
-  // Sección: Export / Import
-  var eiSep = createElement('div', {
     style: 'height:1px;background:var(--sep);margin:28px 20px 20px;'
-  });
-  wrap.appendChild(eiSep);
-
-  var eiWrap = createElement('div', { style: 'padding:0 20px 80px;display:flex;flex-direction:column;gap:12px;' });
+  }));
+  var eiWrap = createElement('div', { style: 'padding:0 20px;display:flex;flex-direction:column;gap:12px;' });
   var exportBtn = createElement('button', { class: 'gym-btn-secondary' }, ['📤 Exportar datos']);
   exportBtn.addEventListener('click', function() { gymExportData(); });
   var importBtn = createElement('button', { class: 'gym-btn-secondary' }, ['📥 Importar datos']);
@@ -1266,156 +1248,326 @@ function gymRenderProgresion(panel) {
 
   panel.appendChild(wrap);
 
-  // Populate
-  dbGetAll('ejercicios').then(function(all) {
-    var sorted = all.sort(function(a, b) { return a.nombre.localeCompare(b.nombre); });
-    var placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = '— Selecciona ejercicio —';
-    select.appendChild(placeholder);
-    sorted.forEach(function(e) {
-      var opt = document.createElement('option');
-      opt.value = e.id;
-      opt.textContent = e.nombre;
-      select.appendChild(opt);
-    });
-    select.addEventListener('change', function() {
-      var id = parseInt(select.value, 10);
-      if (!id) { detailWrap.innerHTML = ''; return; }
-      var ej = sorted.find(function(e) { return e.id === id; });
-      gymRenderProgresionDetail(detailWrap, ej);
-    });
-  });
+  Promise.all([dbGetAll('ejercicios'), dbGetAll('sets'), dbGetAll('sesiones')]).then(function(r) {
+    var ejercicios = r[0], sets = r[1], sesiones = r[2];
+    var sesMap = {};
+    sesiones.forEach(function(s) { sesMap[s.id] = s; });
 
-  gymRenderCompletedWorkouts(completedWrap);
+    if (ejercicios.length === 0) {
+      listWrap.appendChild(createElement('div', {
+        style: 'padding:24px;color:var(--t3);font-size:14px;text-align:center;'
+      }, ['Sin ejercicios. Crea uno desde la pestaña Ejercicios.']));
+      return;
+    }
+
+    var realSets = sets.filter(function(s) {
+      return s.status !== GYM_STATUS.PENDING
+        && isFinite(Number(s.peso)) && Number(s.peso) > 0
+        && isFinite(Number(s.reps)) && Number(s.reps) > 0;
+    });
+
+    var withData = [], noData = [];
+    ejercicios.forEach(function(ej) {
+      var setsEj = realSets.filter(function(s) { return s.ejercicio_id === ej.id; });
+      if (setsEj.length === 0) { noData.push(ej); return; }
+      var pr = setsEj.reduce(function(m, s) {
+        if (Number(s.peso) > Number(m.peso)) return s;
+        if (Number(s.peso) === Number(m.peso) && Number(s.reps) > Number(m.reps)) return s;
+        return m;
+      }, setsEj[0]);
+      var lastTs = 0;
+      var sesIds = {};
+      setsEj.forEach(function(s) {
+        sesIds[s.sesion_id] = true;
+        var ses = sesMap[s.sesion_id];
+        var t = ses ? (ses.timestamp_inicio || new Date(ses.fecha || 0).getTime()) : 0;
+        if (t > lastTs) lastTs = t;
+      });
+      withData.push({ ej: ej, pr: pr, lastTs: lastTs, sesionCount: Object.keys(sesIds).length });
+    });
+
+    withData.sort(function(a, b) { return b.lastTs - a.lastTs; });
+    withData.forEach(function(item) {
+      listWrap.appendChild(gymBuildProgRow(panel, item.ej, item.pr, item.sesionCount, false));
+    });
+
+    if (noData.length > 0) {
+      listWrap.appendChild(createElement('div', {
+        style: 'font-size:12px;color:var(--t3);text-transform:uppercase;letter-spacing:0.5px;margin:18px 0 4px;font-weight:600;'
+      }, ['SIN HISTORIAL']));
+      noData.sort(function(a, b) { return a.nombre.localeCompare(b.nombre); }).forEach(function(ej) {
+        listWrap.appendChild(gymBuildProgRow(panel, ej, null, 0, true));
+      });
+    }
+  });
 }
 
-function gymRenderProgresionDetail(container, ej) {
-  container.innerHTML = '';
+function gymBuildProgRow(panel, ej, pr, sesionCount, dim) {
+  var muscles = gymParseMuscleArr(ej.musculo_primario).join(' · ') || 'sin músculo';
+  var subStr = pr
+    ? sesionCount + (sesionCount === 1 ? ' sesión · PR ' : ' sesiones · PR ') + gymFormatWeight(pr.peso) + ' × ' + pr.reps
+    : 'sin sesiones';
+  var card = createElement('div', {
+    style: 'background:var(--bg-card);border-radius:var(--radius-md);padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer;' + (dim ? 'opacity:0.45;' : '')
+  });
+  var left = createElement('div', { style: 'flex:1;min-width:0;' }, [
+    createElement('div', { style: 'font-weight:600;font-size:15px;color:var(--t1);margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, [ej.nombre]),
+    createElement('div', { style: 'font-size:12px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, [muscles]),
+    createElement('div', { style: 'font-size:13px;color:var(--t2);margin-top:4px;' }, [subStr])
+  ]);
+  var arrow = createElement('div', { style: 'color:var(--t3);font-size:18px;' }, ['›']);
+  card.appendChild(left);
+  card.appendChild(arrow);
+  card.addEventListener('click', function() { gymRenderProgresionDetail(panel, ej); });
+  return card;
+}
+
+function gymRenderProgresionDetail(panel, ej) {
+  panel.innerHTML = '';
+  var wrap = createElement('div', { style: 'padding: 8px 0 80px;' });
+
+  var back = createElement('button', { class: 'gym-dir-back-btn', style: 'margin: 4px 12px 8px;' }, ['‹ Progresión']);
+  back.addEventListener('click', function() { gymRenderProgresion(panel); });
+  wrap.appendChild(back);
+
+  wrap.appendChild(createElement('div', { class: 'gym-dir-detail-title', style: 'padding:0 20px;' }, [ej.nombre]));
+  var muscles = gymParseMuscleArr(ej.musculo_primario);
+  wrap.appendChild(createElement('div', { class: 'gym-dir-detail-muscle', style: 'padding:2px 20px 16px;' }, [
+    (ej.tipo || 'Sin tipo') + ' · ' + (muscles.join(' · ') || 'sin músculo')
+  ]));
+  panel.appendChild(wrap);
+
   Promise.all([dbGetAll('sets'), dbGetAll('sesiones')]).then(function(r) {
     var sets = r[0].filter(function(s) {
       return s.ejercicio_id === ej.id
         && s.status !== GYM_STATUS.PENDING
-        && isFinite(Number(s.peso))
-        && isFinite(Number(s.reps));
+        && isFinite(Number(s.peso)) && Number(s.peso) > 0
+        && isFinite(Number(s.reps)) && Number(s.reps) > 0;
     });
-    var sesiones = {};
-    r[1].forEach(function(s) { sesiones[s.id] = s; });
+    var sesMap = {};
+    r[1].forEach(function(s) { sesMap[s.id] = s; });
 
     if (sets.length === 0) {
-      container.appendChild(createElement('div', {
-        style: 'padding:20px;color:var(--t3);font-size:14px;text-align:center;'
-      }, ['Sin datos aún.']));
+      wrap.appendChild(createElement('div', {
+        style: 'margin:8px 20px;padding:24px;color:var(--t3);font-size:14px;text-align:center;background:var(--bg-card);border-radius:var(--radius-md);'
+      }, ['Sin sesiones registradas para este ejercicio.']));
       return;
     }
 
-    // PR
-    var pr = sets.reduce(function(max, s) { return Number(s.peso) > Number(max.peso) ? s : max; }, sets[0]);
+    // PR absoluto (mayor peso, en empate más reps)
+    var prAbs = sets.reduce(function(m, s) {
+      if (Number(s.peso) > Number(m.peso)) return s;
+      if (Number(s.peso) === Number(m.peso) && Number(s.reps) > Number(m.reps)) return s;
+      return m;
+    }, sets[0]);
+    var prAbsSesion = sesMap[prAbs.sesion_id];
 
-    // Agrupar por sesion
+    // 1RM est máximo (Epley: peso × (1 + reps/30))
+    var oneRM = sets.reduce(function(b, s) {
+      var v = Number(s.peso) * (1 + Number(s.reps) / 30);
+      return v > b.value ? { value: v, set: s } : b;
+    }, { value: 0, set: sets[0] });
+
+    // PR card (acento sutil, no abrumador)
+    var prCard = createElement('div', {
+      style: 'margin: 0 20px 14px;padding:16px 18px;background:linear-gradient(135deg, var(--accent-dim), rgba(255,159,10,0.04));border:1px solid var(--accent-border);border-radius:var(--radius-md);'
+    });
+    prCard.appendChild(createElement('div', {
+      style: 'font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:6px;'
+    }, ['🏆 Personal Record']));
+    prCard.appendChild(createElement('div', {
+      style: 'font-size:26px;font-weight:700;color:var(--t1);font-variant-numeric:tabular-nums;line-height:1.1;'
+    }, [gymFormatWeight(prAbs.peso) + ' × ' + prAbs.reps]));
+    prCard.appendChild(createElement('div', {
+      style: 'font-size:12px;color:var(--t2);margin-top:4px;'
+    }, [prAbsSesion && prAbsSesion.fecha ? gymFormatDateLong(prAbsSesion.fecha) : 'fecha desconocida']));
+    prCard.appendChild(createElement('div', {
+      style: 'font-size:12px;color:var(--t3);margin-top:10px;border-top:1px solid rgba(255,255,255,0.06);padding-top:8px;'
+    }, ['1RM estimado: ' + gymFormatWeight(oneRM.value) + '  ·  fórmula Epley']));
+    wrap.appendChild(prCard);
+
+    // Agrupar por sesión
     var bySesion = {};
-    sets.forEach(function(st) {
-      if (!bySesion[st.sesion_id]) bySesion[st.sesion_id] = [];
-      bySesion[st.sesion_id].push(st);
+    sets.forEach(function(s) {
+      if (!bySesion[s.sesion_id]) bySesion[s.sesion_id] = [];
+      bySesion[s.sesion_id].push(s);
     });
-
-    var rows = Object.keys(bySesion).map(function(sid) {
-      var arr = bySesion[sid];
-      var sesion = sesiones[sid];
+    var sessionRows = Object.keys(bySesion).map(function(sid) {
+      var arr = bySesion[sid].slice().sort(function(a, b) { return (a.orden || a.id) - (b.orden || b.id); });
+      var sesion = sesMap[sid];
       var ts = sesion ? (sesion.timestamp_inicio || new Date(sesion.fecha || 0).getTime()) : 0;
-      arr.sort(function(a, b) { return (b.peso * b.reps) - (a.peso * a.reps); });
-      var best = arr[0];
-      var volumen = arr.reduce(function(sum, s) { return sum + (s.peso * s.reps); }, 0);
-      return { fecha: sesion ? sesion.fecha : null, ts: ts, best: best, volumen: volumen };
-    }).sort(function(a, b) { return a.ts - b.ts; });
+      var maxPeso = arr.reduce(function(m, s) { return Math.max(m, Number(s.peso) || 0); }, 0);
+      var bestSet = arr.reduce(function(best, s) {
+        if (!best) return s;
+        if (Number(s.peso) > Number(best.peso)) return s;
+        if (Number(s.peso) === Number(best.peso) && Number(s.reps) > Number(best.reps)) return s;
+        return best;
+      }, null);
+      var volumen = arr.reduce(function(sum, s) { return sum + (Number(s.peso) * Number(s.reps)); }, 0);
+      return { sesion: sesion, ts: ts, sets: arr, maxPeso: maxPeso, bestSet: bestSet, volumen: volumen };
+    }).sort(function(a, b) { return a.ts - b.ts; }); // ascendente para PR-tracking
 
-    // PR card
-    var prCard = createElement('div', { class: 'gym-pr-card', style: 'margin: 0 20px 12px;' }, [
-      createElement('div', {}, [
-        createElement('div', { class: 'gym-pr-name' }, ['Personal Record']),
-        createElement('div', { class: 'gym-pr-sub' }, [pr.reps + ' reps'])
-      ]),
-      createElement('div', { class: 'gym-pr-value' }, [gymFormatWeight(pr.peso)])
-    ]);
-    container.appendChild(prCard);
-
-    // Mini chart (bars)
-    var maxPeso = Math.max.apply(null, rows.map(function(r) { return Number(r.best.peso) || 0; })) || 1;
-    var chartWrap = createElement('div', {
-      style: 'margin:6px 20px 12px;padding:14px;background:var(--bg-card);border-radius:var(--radius-md);'
-    });
-    chartWrap.appendChild(createElement('div', {
-      style: 'font-size:12px;color:var(--t3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;font-weight:600;'
-    }, ['PESO MÁX · POR SESIÓN']));
-    var chart = createElement('div', {
-      style: 'display:flex;align-items:flex-end;gap:6px;height:90px;'
-    });
-    rows.slice(-12).forEach(function(r) {
-      var p = Number(r.best.peso) || 0;
-      var h = Math.max(6, Math.round((p / maxPeso) * 100));
-      var bar = createElement('div', {
-        style: 'flex:1;background:var(--accent);border-radius:4px 4px 2px 2px;opacity:0.85;height:' + h + '%;min-height:6px;',
-        title: gymFormatDateShort(r.fecha) + ': ' + gymFormatWeight(p)
+    // Marcar sets que fueron PR en el momento
+    var runningMax = 0;
+    sessionRows.forEach(function(row) {
+      row.sets.forEach(function(s) {
+        var p = Number(s.peso);
+        s._isPR = p > runningMax;
+        if (p > runningMax) runningMax = p;
       });
-      chart.appendChild(bar);
     });
-    chartWrap.appendChild(chart);
-    container.appendChild(chartWrap);
 
-    // Tabla
-    var tableWrap = createElement('div', { style: 'margin: 6px 20px 0;background:var(--bg-card);border-radius:var(--radius-md);overflow:hidden;' });
-    var tableHeader = createElement('div', { class: 'gym-detail-table-header' }, [
-      createElement('div', { style: 'flex:1;' }, ['Fecha']),
-      createElement('div', { style: 'flex:1;' }, ['Mejor set']),
-      createElement('div', { style: 'flex:1;text-align:right;' }, ['Volumen'])
-    ]);
-    tableWrap.appendChild(tableHeader);
+    var last10Asc = sessionRows.slice(-10);
+    var last10Desc = last10Asc.slice().reverse();
 
-    rows.slice().reverse().forEach(function(r) {
-      var row = createElement('div', { class: 'gym-detail-table-row' }, [
-        createElement('div', { style: 'flex:1;color:var(--t1);font-size:14px;' }, [gymFormatDateShort(r.fecha)]),
-        createElement('div', { style: 'flex:1;color:var(--t2);font-size:14px;' }, [gymFormatWeight(r.best.peso) + ' × ' + r.best.reps]),
-        createElement('div', { style: 'flex:1;color:var(--t2);font-size:14px;text-align:right;' }, [gymFormatWeight(r.volumen)])
-      ]);
-      tableWrap.appendChild(row);
-    });
-    container.appendChild(tableWrap);
+    // Gráfica SVG
+    wrap.appendChild(gymBuildSvgChart(last10Asc));
+
+    // Lista
+    wrap.appendChild(createElement('div', {
+      style: 'font-size:13px;color:var(--t3);text-transform:uppercase;letter-spacing:0.5px;padding:18px 20px 8px;font-weight:600;'
+    }, ['ÚLTIMAS ' + last10Desc.length + (last10Desc.length === 1 ? ' SESIÓN' : ' SESIONES')]));
+
+    var listWrap = createElement('div', { style: 'padding:0 20px;display:flex;flex-direction:column;gap:8px;' });
+    last10Desc.forEach(function(row) { listWrap.appendChild(gymBuildSessionDetails(row)); });
+    wrap.appendChild(listWrap);
   });
 }
 
-function gymRenderCompletedWorkouts(container) {
-  container.innerHTML = '';
-  Promise.all([dbGetAll('sesiones'), dbGetAll('sets')]).then(function(r) {
-    var sesiones = r[0].filter(function(s) { return s.finalizada === true; })
-      .sort(function(a, b) {
-        return (b.timestamp_inicio || new Date(b.fecha || 0).getTime()) -
-               (a.timestamp_inicio || new Date(a.fecha || 0).getTime());
-      });
-    var sets = r[1];
-
-    if (sesiones.length === 0) {
-      container.appendChild(createElement('div', {
-        style: 'padding:20px;color:var(--t3);font-size:14px;text-align:center;'
-      }, ['Sin sesiones completadas.']));
-      return;
-    }
-
-    sesiones.forEach(function(s) {
-      var sessionSets = sets.filter(function(st) { return st.sesion_id === s.id && st.status !== GYM_STATUS.PENDING; });
-      var doneCount = sessionSets.filter(function(st) { return st.status !== GYM_STATUS.SKIPPED; }).length;
-      var card = createElement('div', {
-        style: 'background:var(--bg-card);border-radius:var(--radius-md);padding:12px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;'
-      });
-      var left = createElement('div', { style: 'flex:1;min-width:0;' }, [
-        createElement('div', { style: 'font-weight:600;font-size:15px;color:var(--t1);margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, [s.nombre || 'Workout']),
-        createElement('div', { style: 'font-size:13px;color:var(--t2);' }, [gymFormatDateShort(s.fecha) + ' · ' + doneCount + (doneCount === 1 ? ' set' : ' sets') + (s.duracion_ms ? ' · ' + gymFormatDuration(s.duracion_ms) : '')])
-      ]);
-      var right = gymStatusChip(GYM_STATUS.DONE);
-      card.appendChild(left);
-      card.appendChild(right);
-      container.appendChild(card);
-    });
+function gymBuildSvgChart(rows) {
+  var card = createElement('div', {
+    style: 'margin:6px 20px 0;padding:14px;background:var(--bg-card);border-radius:var(--radius-md);'
   });
+  card.appendChild(createElement('div', {
+    style: 'font-size:12px;color:var(--t3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;font-weight:600;'
+  }, ['PESO MÁX · ÚLTIMAS ' + rows.length + (rows.length === 1 ? ' SESIÓN' : ' SESIONES')]));
+
+  if (rows.length === 0) {
+    card.appendChild(createElement('div', {
+      style: 'color:var(--t3);font-size:13px;padding:20px 0;text-align:center;'
+    }, ['Sin datos.']));
+    return card;
+  }
+
+  var W = 320, H = 120, padX = 14, padY = 14;
+  var pesos = rows.map(function(r) { return r.maxPeso; });
+  var minP = Math.min.apply(null, pesos);
+  var maxP = Math.max.apply(null, pesos);
+  if (minP === maxP) { minP = Math.max(0, minP - 1); maxP = maxP + 1; }
+  var range = maxP - minP;
+  var step = rows.length > 1 ? (W - 2 * padX) / (rows.length - 1) : 0;
+  var ns = 'http://www.w3.org/2000/svg';
+
+  var svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.setAttribute('style', 'width:100%;height:120px;display:block;');
+
+  // Grid
+  [0, 0.5, 1].forEach(function(t) {
+    var y = padY + (1 - t) * (H - 2 * padY);
+    var line = document.createElementNS(ns, 'line');
+    line.setAttribute('x1', padX); line.setAttribute('x2', W - padX);
+    line.setAttribute('y1', y); line.setAttribute('y2', y);
+    line.setAttribute('stroke', 'rgba(255,255,255,0.06)');
+    line.setAttribute('stroke-width', '1');
+    svg.appendChild(line);
+  });
+
+  var pts = rows.map(function(r, i) {
+    var x = rows.length === 1 ? W / 2 : padX + i * step;
+    var norm = range === 0 ? 0.5 : (r.maxPeso - minP) / range;
+    var y = padY + (1 - norm) * (H - 2 * padY);
+    return { x: x, y: y, row: r };
+  });
+
+  if (pts.length > 1) {
+    var areaD = 'M ' + pts[0].x + ' ' + (H - padY) +
+      ' L ' + pts.map(function(p) { return p.x + ' ' + p.y; }).join(' L ') +
+      ' L ' + pts[pts.length-1].x + ' ' + (H - padY) + ' Z';
+    var area = document.createElementNS(ns, 'path');
+    area.setAttribute('d', areaD);
+    area.setAttribute('fill', 'rgba(255,159,10,0.12)');
+    svg.appendChild(area);
+
+    var lineD = 'M ' + pts.map(function(p) { return p.x + ' ' + p.y; }).join(' L ');
+    var ln = document.createElementNS(ns, 'path');
+    ln.setAttribute('d', lineD);
+    ln.setAttribute('fill', 'none');
+    ln.setAttribute('stroke', '#FF9F0A');
+    ln.setAttribute('stroke-width', '2');
+    ln.setAttribute('stroke-linecap', 'round');
+    ln.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(ln);
+  }
+
+  pts.forEach(function(p) {
+    var c = document.createElementNS(ns, 'circle');
+    c.setAttribute('cx', p.x); c.setAttribute('cy', p.y);
+    c.setAttribute('r', 3.5);
+    c.setAttribute('fill', '#FF9F0A');
+    var title = document.createElementNS(ns, 'title');
+    title.textContent = gymFormatDateShort(p.row.sesion ? p.row.sesion.fecha : null) + ': ' + gymFormatWeight(p.row.maxPeso);
+    c.appendChild(title);
+    svg.appendChild(c);
+  });
+
+  card.appendChild(svg);
+
+  card.appendChild(createElement('div', {
+    style: 'display:flex;justify-content:space-between;font-size:11px;color:var(--t3);margin-top:8px;font-variant-numeric:tabular-nums;'
+  }, [
+    createElement('span', {}, [gymFormatDateShort(rows[0].sesion ? rows[0].sesion.fecha : null)]),
+    createElement('span', {}, ['min ' + gymFormatWeight(minP) + '  ·  máx ' + gymFormatWeight(maxP)]),
+    createElement('span', {}, [gymFormatDateShort(rows[rows.length-1].sesion ? rows[rows.length-1].sesion.fecha : null)])
+  ]));
+  return card;
+}
+
+function gymBuildSessionDetails(row) {
+  var details = createElement('details', {
+    style: 'background:var(--bg-card);border-radius:var(--radius-md);padding:10px 14px;'
+  });
+  var summary = createElement('summary', {
+    style: 'cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:10px;'
+  });
+  var routine = row.sesion && row.sesion.routine_type ? ' · ' + row.sesion.routine_type : '';
+  summary.appendChild(createElement('div', { style: 'flex:1;min-width:0;' }, [
+    createElement('div', { style: 'font-weight:600;font-size:14px;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, [
+      gymFormatDateLong(row.sesion ? row.sesion.fecha : null) + routine
+    ]),
+    createElement('div', { style: 'font-size:12px;color:var(--t2);margin-top:2px;' }, [
+      'Mejor: ' + gymFormatWeight(row.bestSet.peso) + ' × ' + row.bestSet.reps + '  ·  Vol: ' + gymFormatWeight(row.volumen)
+    ])
+  ]));
+  summary.appendChild(createElement('span', { style: 'color:var(--t3);font-size:12px;' }, ['▾']));
+  details.appendChild(summary);
+
+  var body = createElement('div', {
+    style: 'margin-top:10px;border-top:1px solid var(--sep);padding-top:10px;display:flex;flex-direction:column;gap:6px;'
+  });
+  row.sets.forEach(function(s, i) {
+    var srow = createElement('div', {
+      style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;'
+    });
+    srow.appendChild(createElement('span', { style: 'color:var(--t3);min-width:50px;' }, ['Set #' + (i + 1)]));
+    srow.appendChild(createElement('span', { style: 'color:var(--t1);font-weight:500;flex:1;' }, [
+      gymFormatWeight(s.peso) + ' × ' + s.reps
+    ]));
+    if (s._isPR) {
+      srow.appendChild(createElement('span', {
+        style: 'background:var(--accent-dim);color:var(--accent);font-size:10px;font-weight:700;padding:2px 8px;border-radius:980px;border:1px solid var(--accent-border);text-transform:uppercase;letter-spacing:0.4px;'
+      }, ['🏆 PR']));
+    }
+    if (s.status === GYM_STATUS.SKIPPED) {
+      srow.appendChild(createElement('span', {
+        style: 'color:var(--red);font-size:10px;text-transform:uppercase;letter-spacing:0.4px;'
+      }, ['skipped']));
+    }
+    body.appendChild(srow);
+  });
+  details.appendChild(body);
+  return details;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
