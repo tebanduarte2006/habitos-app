@@ -490,14 +490,40 @@ function gymBuildExerciseCard(sesion, ej, sets, listEl) {
   head.appendChild(delEx);
   card.appendChild(head);
 
-  // Hint: última vez
-  gymGetLastSetForEjercicio(ej.id, sesion.id).then(function(last) {
-    if (last && isFinite(Number(last.peso)) && isFinite(Number(last.reps))) {
-      var hint = createElement('div', {
-        style: 'font-size:12px;color:var(--t3);margin-bottom:10px;'
-      }, ['Última vez: ' + gymFormatWeight(last.peso) + ' × ' + last.reps + ' reps']);
-      card.insertBefore(hint, card.children[1] || null);
+  // Última sesión — expandible (▶ todas las series, reps y peso de la última vez)
+  var lastWrap = createElement('details', {
+    class: 'gym-last-session',
+    style: 'margin:2px 0 10px;background:rgba(255,255,255,0.03);border-radius:var(--radius-sm);padding:6px 10px;'
+  });
+  var lastSummary = createElement('summary', {
+    style: 'font-size:12px;color:var(--t2);cursor:pointer;list-style:none;font-weight:500;'
+  }, ['▸ Última sesión']);
+  lastWrap.appendChild(lastSummary);
+  var lastBody = createElement('div', {
+    style: 'margin-top:8px;font-size:13px;color:var(--t2);line-height:1.5;'
+  }, ['Cargando…']);
+  lastWrap.appendChild(lastBody);
+  card.insertBefore(lastWrap, card.children[1] || null);
+
+  gymGetLastSessionSetsForEjercicio(ej.id, sesion.id).then(function(prev) {
+    lastBody.innerHTML = '';
+    if (!prev || !prev.sets || prev.sets.length === 0) {
+      lastBody.appendChild(createElement('div', { style: 'color:var(--t3);' }, ['N/A — sin registros previos']));
+      return;
     }
+    lastBody.appendChild(createElement('div', {
+      style: 'font-size:12px;color:var(--t3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;'
+    }, [gymFormatDateLong(prev.fecha)]));
+    prev.sets.forEach(function(st, i) {
+      var pesoStr = isFinite(Number(st.peso)) ? gymFormatWeight(st.peso) : '—';
+      var repsStr = isFinite(Number(st.reps)) ? st.reps : '—';
+      lastBody.appendChild(createElement('div', {
+        style: 'display:flex;justify-content:space-between;padding:2px 0;'
+      }, [
+        createElement('span', { style: 'color:var(--t3);' }, ['Set #' + (i + 1)]),
+        createElement('span', { style: 'color:var(--t1);font-weight:500;' }, [pesoStr + ' × ' + repsStr + ' reps'])
+      ]));
+    });
   });
 
   // Sets rows — ocultar placeholders Pending 0/0 (solo sirven para mantener el ejercicio adjunto)
@@ -599,9 +625,52 @@ function gymGetLastSetForEjercicio(ejercicio_id, excludeSesionId) {
       return s.ejercicio_id === ejercicio_id && s.sesion_id !== excludeSesionId;
     });
     if (candidates.length === 0) return null;
-    // Get the most recent by sesion (sesion_id mayor ≈ más reciente si autoIncrement)
     candidates.sort(function(a, b) { return b.sesion_id - a.sesion_id || b.id - a.id; });
     return candidates[0];
+  });
+}
+
+// Devuelve todos los sets reales (no placeholders) de la sesión MÁS RECIENTE
+// previa al sesion_id actual para un ejercicio dado, junto con la fecha.
+// { fecha, sesion_id, sets: [...] } | null
+function gymGetLastSessionSetsForEjercicio(ejercicio_id, excludeSesionId) {
+  return Promise.all([dbGetAll('sets'), dbGetAll('sesiones')]).then(function(r) {
+    var sets = r[0], sesiones = r[1];
+    var sesionMap = {};
+    sesiones.forEach(function(s) { sesionMap[s.id] = s; });
+
+    var real = sets.filter(function(s) {
+      if (s.ejercicio_id !== ejercicio_id) return false;
+      if (s.sesion_id === excludeSesionId) return false;
+      // Excluir placeholders 0/0 Pending
+      if (s.status === GYM_STATUS.PENDING && Number(s.peso) === 0 && Number(s.reps) === 0) return false;
+      return true;
+    });
+    if (real.length === 0) return null;
+
+    // Agrupar por sesion_id
+    var bySes = {};
+    real.forEach(function(s) {
+      if (!bySes[s.sesion_id]) bySes[s.sesion_id] = [];
+      bySes[s.sesion_id].push(s);
+    });
+
+    // Elegir la sesión más reciente por timestamp_inicio/fecha (con id como fallback)
+    var sesionIds = Object.keys(bySes).map(function(k) { return Number(k); });
+    sesionIds.sort(function(a, b) {
+      var sa = sesionMap[a], sb = sesionMap[b];
+      var ta = (sa && (sa.timestamp_inicio || (sa.fecha ? new Date(sa.fecha).getTime() : 0))) || a;
+      var tb = (sb && (sb.timestamp_inicio || (sb.fecha ? new Date(sb.fecha).getTime() : 0))) || b;
+      return tb - ta;
+    });
+    var pickId = sesionIds[0];
+    var picked = bySes[pickId].slice().sort(function(a, b) { return (a.orden || a.id) - (b.orden || b.id); });
+    var sesion = sesionMap[pickId];
+    return {
+      sesion_id: pickId,
+      fecha: sesion ? sesion.fecha : null,
+      sets: picked
+    };
   });
 }
 
@@ -792,59 +861,107 @@ function gymShowNewExerciseModal(onCreated, defaultRoutine) {
   }, ['MÚSCULO PRIMARIO']));
 
   var selectedMuscles = {};
-  var muscleGrid = createElement('div', { class: 'gym-muscle-grid' });
-  modal.appendChild(muscleGrid);
 
-  var buildMuscleButtons = function(list) {
-    muscleGrid.innerHTML = '';
-    list.forEach(function(m) {
-      var btn = createElement('button', { class: 'gym-muscle-btn' + (selectedMuscles[m] ? ' selected' : '') }, [m]);
-      btn.addEventListener('click', function() {
-        if (selectedMuscles[m]) { delete selectedMuscles[m]; btn.classList.remove('selected'); }
-        else { selectedMuscles[m] = true; btn.classList.add('selected'); }
+  // Chips de seleccionados (tap × para quitar)
+  var chipsWrap = createElement('div', {
+    style: 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:4px;'
+  });
+  modal.appendChild(chipsWrap);
+
+  var renderChips = function() {
+    chipsWrap.innerHTML = '';
+    Object.keys(selectedMuscles).forEach(function(m) {
+      var chip = createElement('button', {
+        type: 'button',
+        style: 'display:inline-flex;align-items:center;gap:6px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-border);border-radius:980px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;'
+      }, [m + '  ×']);
+      chip.addEventListener('click', function() {
+        delete selectedMuscles[m];
+        renderChips();
+        renderSugg(muscleSearch.value);
       });
-      muscleGrid.appendChild(btn);
+      chipsWrap.appendChild(chip);
     });
   };
 
-  // Render inicial con lista base; luego fusiona con músculos ya registrados en DB
-  buildMuscleButtons(GYM_MUSCLE_GROUPS);
+  var muscleSearch = createElement('input', {
+    class: 'gym-search-input',
+    type: 'text',
+    placeholder: 'Buscar o crear músculo…',
+    autocomplete: 'off'
+  });
+  modal.appendChild(muscleSearch);
+
+  var muscleSugg = createElement('div', { class: 'gym-suggestions', style: 'max-height:220px;overflow-y:auto;' });
+  modal.appendChild(muscleSugg);
+
+  // Pool: base + descubiertos en DB
+  var allMuscles = GYM_MUSCLE_GROUPS.slice();
   dbGetAll('ejercicios').then(function(all) {
     var seen = {};
-    GYM_MUSCLE_GROUPS.forEach(function(m) { seen[m.toLowerCase()] = m; });
-    var extra = [];
+    allMuscles.forEach(function(m) { seen[m.toLowerCase()] = true; });
     all.forEach(function(e) {
       gymParseMuscleArr(e.musculo_primario).forEach(function(m) {
         if (!m) return;
         var key = String(m).toLowerCase();
-        if (!seen[key]) { seen[key] = m; extra.push(m); }
+        if (!seen[key]) { seen[key] = true; allMuscles.push(m); }
       });
     });
-    extra.sort(function(a, b) { return a.localeCompare(b); });
-    buildMuscleButtons(GYM_MUSCLE_GROUPS.concat(extra));
+    allMuscles.sort(function(a, b) { return a.localeCompare(b); });
+    renderSugg(muscleSearch.value);
   });
 
-  // Añadir músculo custom
-  var customWrap = createElement('div', { style: 'display:flex;gap:8px;margin-top:8px;' });
-  var customInput = createElement('input', {
-    class: 'gym-search-input',
-    type: 'text',
-    placeholder: '+ Otro músculo…',
-    style: 'flex:1;'
-  });
-  var customAdd = createElement('button', { class: 'gym-btn-secondary', style: 'margin:0;padding:0 14px;min-width:auto;' }, ['Añadir']);
-  customAdd.addEventListener('click', function() {
-    var v = customInput.value.trim();
-    if (!v) return;
-    selectedMuscles[v] = true;
-    customInput.value = '';
-    var currentList = Array.prototype.map.call(muscleGrid.children, function(b) { return b.textContent; });
-    if (currentList.indexOf(v) < 0) currentList.push(v);
-    buildMuscleButtons(currentList);
-  });
-  customWrap.appendChild(customInput);
-  customWrap.appendChild(customAdd);
-  modal.appendChild(customWrap);
+  function renderSugg(term) {
+    muscleSugg.innerHTML = '';
+    var t = (term || '').trim();
+    var tLower = t.toLowerCase();
+    var filtered = allMuscles.filter(function(m) {
+      if (selectedMuscles[m]) return false;
+      if (!t) return true;
+      return m.toLowerCase().indexOf(tLower) >= 0;
+    });
+
+    if (!t && filtered.length === 0) {
+      muscleSugg.appendChild(createElement('div', {
+        style: 'padding:12px;color:var(--t3);font-size:13px;text-align:center;'
+      }, ['Escribe para buscar.']));
+      return;
+    }
+
+    filtered.slice(0, 12).forEach(function(m) {
+      var item = createElement('div', { class: 'gym-suggestion-item' }, [m]);
+      item.addEventListener('click', function() {
+        selectedMuscles[m] = true;
+        muscleSearch.value = '';
+        renderChips();
+        renderSugg('');
+      });
+      muscleSugg.appendChild(item);
+    });
+
+    // Opción de crear custom si el término no coincide exactamente con un nombre conocido
+    if (t) {
+      var exists = allMuscles.some(function(m) { return m.toLowerCase() === tLower; });
+      if (!exists && !selectedMuscles[t]) {
+        var createItem = createElement('div', {
+          class: 'gym-suggestion-item',
+          style: 'color:var(--accent);font-weight:600;'
+        }, ['+ Crear "' + t + '"']);
+        createItem.addEventListener('click', function() {
+          selectedMuscles[t] = true;
+          allMuscles.push(t);
+          allMuscles.sort(function(a, b) { return a.localeCompare(b); });
+          muscleSearch.value = '';
+          renderChips();
+          renderSugg('');
+        });
+        muscleSugg.appendChild(createItem);
+      }
+    }
+  }
+
+  muscleSearch.addEventListener('input', function() { renderSugg(muscleSearch.value); });
+  renderSugg('');
 
   var createBtn = createElement('button', { class: 'gym-btn-primary' }, ['Crear']);
   createBtn.addEventListener('click', function() {
