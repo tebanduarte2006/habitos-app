@@ -59,6 +59,13 @@ function gymParseMuscleArr(raw) {
   catch (e) { return [String(raw)]; }
 }
 
+// Clave normalizada para dedupe + búsqueda accent/case-insensitive
+// ("Bíceps" === "biceps", "Tríceps" === "triceps").
+function gymNormalizeKey(s) {
+  if (!s) return '';
+  return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
 function gymFormatDateShort(iso) {
   if (!iso) return '';
   var d = new Date(iso);
@@ -317,8 +324,9 @@ function gymShowStartModal(panel) {
     var allNames = Object.keys(nameSet).sort();
     var render = function(term) {
       sugg.innerHTML = '';
-      var t = (term || '').trim().toLowerCase();
-      var filtered = allNames.filter(function(n) { return !t || n.toLowerCase().indexOf(t) >= 0; });
+      var t = (term || '').trim();
+      var tKey = gymNormalizeKey(t);
+      var filtered = allNames.filter(function(n) { return !tKey || gymNormalizeKey(n).indexOf(tKey) >= 0; });
       if (filtered.length === 0 && !t) {
         sugg.appendChild(createElement('div', {
           style: 'padding:12px;color:var(--t3);font-size:13px;text-align:center;'
@@ -755,8 +763,9 @@ function gymShowAddExerciseModal(sesion, listEl) {
         }, ['Escribe para buscar ejercicios.']));
         return;
       }
+      var tKey = gymNormalizeKey(t);
       var filtered = all.filter(function(e) {
-        return e.nombre.toLowerCase().indexOf(t.toLowerCase()) >= 0;
+        return gymNormalizeKey(e.nombre).indexOf(tKey) >= 0;
       }).sort(function(a, b) { return a.nombre.localeCompare(b.nombre); }).slice(0, 8);
       if (filtered.length === 0) {
         suggestions.appendChild(createElement('div', {
@@ -844,8 +853,8 @@ function gymShowNewExerciseModal(onCreated, defaultRoutine) {
     var allNames = Object.keys(nameSet).sort();
     var renderTypes = function(term) {
       typeSugg.innerHTML = '';
-      var t = (term || '').trim().toLowerCase();
-      var filtered = allNames.filter(function(n) { return !t || n.toLowerCase().indexOf(t) >= 0; });
+      var tKey = gymNormalizeKey(term);
+      var filtered = allNames.filter(function(n) { return !tKey || gymNormalizeKey(n).indexOf(tKey) >= 0; });
       filtered.slice(0, 5).forEach(function(n) {
         var item = createElement('div', { class: 'gym-suggestion-item' }, [n]);
         item.addEventListener('click', function() { typeInput.value = n; typeSugg.innerHTML = ''; });
@@ -860,114 +869,14 @@ function gymShowNewExerciseModal(onCreated, defaultRoutine) {
     style: 'font-size:13px;color:var(--t3);margin:12px 0 8px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;'
   }, ['MÚSCULO PRIMARIO']));
 
-  var selectedMuscles = {};
-
-  // Chips de seleccionados (tap × para quitar)
-  var chipsWrap = createElement('div', {
-    style: 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:4px;'
-  });
-  modal.appendChild(chipsWrap);
-
-  var renderChips = function() {
-    chipsWrap.innerHTML = '';
-    Object.keys(selectedMuscles).forEach(function(m) {
-      var chip = createElement('button', {
-        type: 'button',
-        style: 'display:inline-flex;align-items:center;gap:6px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-border);border-radius:980px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;'
-      }, [m + '  ×']);
-      chip.addEventListener('click', function() {
-        delete selectedMuscles[m];
-        renderChips();
-        renderSugg(muscleSearch.value);
-      });
-      chipsWrap.appendChild(chip);
-    });
-  };
-
-  var muscleSearch = createElement('input', {
-    class: 'gym-search-input',
-    type: 'text',
-    placeholder: 'Buscar o crear músculo…',
-    autocomplete: 'off'
-  });
-  modal.appendChild(muscleSearch);
-
-  var muscleSugg = createElement('div', { class: 'gym-suggestions', style: 'max-height:220px;overflow-y:auto;' });
-  modal.appendChild(muscleSugg);
-
-  // Pool: base + descubiertos en DB
-  var allMuscles = GYM_MUSCLE_GROUPS.slice();
-  dbGetAll('ejercicios').then(function(all) {
-    var seen = {};
-    allMuscles.forEach(function(m) { seen[m.toLowerCase()] = true; });
-    all.forEach(function(e) {
-      gymParseMuscleArr(e.musculo_primario).forEach(function(m) {
-        if (!m) return;
-        var key = String(m).toLowerCase();
-        if (!seen[key]) { seen[key] = true; allMuscles.push(m); }
-      });
-    });
-    allMuscles.sort(function(a, b) { return a.localeCompare(b); });
-    renderSugg(muscleSearch.value);
-  });
-
-  function renderSugg(term) {
-    muscleSugg.innerHTML = '';
-    var t = (term || '').trim();
-    var tLower = t.toLowerCase();
-    var filtered = allMuscles.filter(function(m) {
-      if (selectedMuscles[m]) return false;
-      if (!t) return true;
-      return m.toLowerCase().indexOf(tLower) >= 0;
-    });
-
-    if (!t && filtered.length === 0) {
-      muscleSugg.appendChild(createElement('div', {
-        style: 'padding:12px;color:var(--t3);font-size:13px;text-align:center;'
-      }, ['Escribe para buscar.']));
-      return;
-    }
-
-    filtered.slice(0, 12).forEach(function(m) {
-      var item = createElement('div', { class: 'gym-suggestion-item' }, [m]);
-      item.addEventListener('click', function() {
-        selectedMuscles[m] = true;
-        muscleSearch.value = '';
-        renderChips();
-        renderSugg('');
-      });
-      muscleSugg.appendChild(item);
-    });
-
-    // Opción de crear custom si el término no coincide exactamente con un nombre conocido
-    if (t) {
-      var exists = allMuscles.some(function(m) { return m.toLowerCase() === tLower; });
-      if (!exists && !selectedMuscles[t]) {
-        var createItem = createElement('div', {
-          class: 'gym-suggestion-item',
-          style: 'color:var(--accent);font-weight:600;'
-        }, ['+ Crear "' + t + '"']);
-        createItem.addEventListener('click', function() {
-          selectedMuscles[t] = true;
-          allMuscles.push(t);
-          allMuscles.sort(function(a, b) { return a.localeCompare(b); });
-          muscleSearch.value = '';
-          renderChips();
-          renderSugg('');
-        });
-        muscleSugg.appendChild(createItem);
-      }
-    }
-  }
-
-  muscleSearch.addEventListener('input', function() { renderSugg(muscleSearch.value); });
-  renderSugg('');
+  var picker = gymBuildMusclePicker({ initialSelected: [] });
+  modal.appendChild(picker.container);
 
   var createBtn = createElement('button', { class: 'gym-btn-primary' }, ['Crear']);
   createBtn.addEventListener('click', function() {
     var nombre = nameInput.value.trim();
     if (!nombre) { showToast('Nombre requerido'); return; }
-    var muscles = Object.keys(selectedMuscles);
+    var muscles = picker.getSelected();
     if (muscles.length === 0) { showToast('Selecciona al menos un músculo'); return; }
     var record = {
       nombre: nombre,
@@ -1030,6 +939,175 @@ function gymConfirmAction(msg, onConfirm) {
   cancel.addEventListener('click', function() { overlay.remove(); });
   modal.appendChild(ok);
   modal.appendChild(cancel);
+  var overlay = createElement('div', { class: 'gym-modal-overlay' }, [modal]);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+// ─── Muscle picker reutilizable ────────────────────────────────────────────────
+// opts.initialSelected: array de strings con músculos preseleccionados.
+// Returns { container, getSelected }. Inserta el container donde necesites.
+function gymBuildMusclePicker(opts) {
+  opts = opts || {};
+  var initial = (opts.initialSelected || []).filter(Boolean);
+  var selectedMuscles = {};
+  initial.forEach(function(m) { selectedMuscles[m] = true; });
+
+  var wrap = createElement('div', {});
+
+  var chipsWrap = createElement('div', {
+    style: 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:4px;'
+  });
+  wrap.appendChild(chipsWrap);
+
+  var muscleSearch = createElement('input', {
+    class: 'gym-search-input',
+    type: 'text',
+    placeholder: 'Buscar o crear músculo…',
+    autocomplete: 'off'
+  });
+  wrap.appendChild(muscleSearch);
+
+  var muscleSugg = createElement('div', { class: 'gym-suggestions', style: 'max-height:220px;overflow-y:auto;' });
+  wrap.appendChild(muscleSugg);
+
+  var allMuscles = GYM_MUSCLE_GROUPS.slice();
+  // Asegurar que los preseleccionados (incluso customs) estén en pool.
+  initial.forEach(function(m) {
+    if (!allMuscles.some(function(x) { return gymNormalizeKey(x) === gymNormalizeKey(m); })) {
+      allMuscles.push(m);
+    }
+  });
+
+  function renderChips() {
+    chipsWrap.innerHTML = '';
+    Object.keys(selectedMuscles).forEach(function(m) {
+      var chip = createElement('button', {
+        type: 'button',
+        style: 'display:inline-flex;align-items:center;gap:6px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-border);border-radius:980px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;'
+      }, [m + '  ×']);
+      chip.addEventListener('click', function() {
+        delete selectedMuscles[m];
+        renderChips();
+        renderSugg(muscleSearch.value);
+      });
+      chipsWrap.appendChild(chip);
+    });
+  }
+
+  function renderSugg(term) {
+    muscleSugg.innerHTML = '';
+    var t = (term || '').trim();
+    var tKey = gymNormalizeKey(t);
+    var filtered = allMuscles.filter(function(m) {
+      if (selectedMuscles[m]) return false;
+      if (!t) return true;
+      return gymNormalizeKey(m).indexOf(tKey) >= 0;
+    });
+
+    if (!t && filtered.length === 0) {
+      muscleSugg.appendChild(createElement('div', {
+        style: 'padding:12px;color:var(--t3);font-size:13px;text-align:center;'
+      }, ['Escribe para buscar.']));
+      return;
+    }
+
+    filtered.slice(0, 12).forEach(function(m) {
+      var item = createElement('div', { class: 'gym-suggestion-item' }, [m]);
+      item.addEventListener('click', function() {
+        selectedMuscles[m] = true;
+        muscleSearch.value = '';
+        renderChips();
+        renderSugg('');
+      });
+      muscleSugg.appendChild(item);
+    });
+
+    if (t) {
+      var exists = allMuscles.some(function(m) { return gymNormalizeKey(m) === tKey; });
+      if (!exists && !selectedMuscles[t]) {
+        var createItem = createElement('div', {
+          class: 'gym-suggestion-item',
+          style: 'color:var(--accent);font-weight:600;'
+        }, ['+ Crear "' + t + '"']);
+        createItem.addEventListener('click', function() {
+          selectedMuscles[t] = true;
+          allMuscles.push(t);
+          allMuscles.sort(function(a, b) { return a.localeCompare(b); });
+          muscleSearch.value = '';
+          renderChips();
+          renderSugg('');
+        });
+        muscleSugg.appendChild(createItem);
+      }
+    }
+  }
+
+  // Pool: base + descubiertos en DB (dedup accent/case-insensitive).
+  dbGetAll('ejercicios').then(function(all) {
+    var seen = {};
+    allMuscles.forEach(function(m) { seen[gymNormalizeKey(m)] = true; });
+    all.forEach(function(e) {
+      gymParseMuscleArr(e.musculo_primario).forEach(function(m) {
+        if (!m) return;
+        var key = gymNormalizeKey(m);
+        if (!seen[key]) { seen[key] = true; allMuscles.push(m); }
+      });
+    });
+    allMuscles.sort(function(a, b) { return a.localeCompare(b); });
+    renderSugg(muscleSearch.value);
+  });
+
+  muscleSearch.addEventListener('input', function() { renderSugg(muscleSearch.value); });
+  renderChips();
+  renderSugg('');
+
+  return {
+    container: wrap,
+    getSelected: function() { return Object.keys(selectedMuscles); }
+  };
+}
+
+// ─── Modal: editar músculos primarios de un ejercicio existente ─────────────────
+function gymOpenEditMusclesModal(ej, onSaved) {
+  var modal = createElement('div', { class: 'gym-modal' });
+  modal.appendChild(createElement('div', { class: 'gym-modal-title' }, ['Editar músculos']));
+  modal.appendChild(createElement('div', {
+    style: 'color:var(--t2);font-size:14px;margin-bottom:12px;line-height:1.4;'
+  }, [ej.nombre]));
+
+  modal.appendChild(createElement('div', {
+    style: 'font-size:13px;color:var(--t3);margin:4px 0 8px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;'
+  }, ['MÚSCULO PRIMARIO']));
+
+  var picker = gymBuildMusclePicker({ initialSelected: gymParseMuscleArr(ej.musculo_primario) });
+  modal.appendChild(picker.container);
+
+  var saveBtn = createElement('button', { class: 'gym-btn-primary' }, ['Guardar']);
+  var cancelBtn = createElement('button', { class: 'gym-btn-secondary' }, ['Cancelar']);
+
+  saveBtn.addEventListener('click', function() {
+    var muscles = picker.getSelected();
+    if (muscles.length === 0) { showToast('Selecciona al menos un músculo'); return; }
+    gymConfirmAction(
+      'Cambiar los músculos primarios de "' + ej.nombre + '"? Esto afecta también las sesiones pasadas.',
+      function() {
+        ej.musculo_primario = JSON.stringify(muscles);
+        dbPut('ejercicios', ej).then(function() {
+          overlay.remove();
+          showToast('Músculos actualizados');
+          if (onSaved) onSaved(ej);
+        }).catch(function() {
+          showToast('Error al guardar');
+        });
+      }
+    );
+  });
+  cancelBtn.addEventListener('click', function() { overlay.remove(); });
+
+  modal.appendChild(saveBtn);
+  modal.appendChild(cancelBtn);
+
   var overlay = createElement('div', { class: 'gym-modal-overlay' }, [modal]);
   overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
   document.body.appendChild(overlay);
@@ -1101,10 +1179,10 @@ function gymRenderEjercicios(panel) {
 function gymRenderLibraryItems(listEl, panel) {
   listEl.innerHTML = '';
   dbGetAll('ejercicios').then(function(all) {
-    var term = (_gymLibFilter.search || '').toLowerCase();
+    var termKey = gymNormalizeKey(_gymLibFilter.search || '');
     var filtered = all.filter(function(e) {
       if (_gymLibFilter.type && e.tipo !== _gymLibFilter.type) return false;
-      if (term && e.nombre.toLowerCase().indexOf(term) < 0) return false;
+      if (termKey && gymNormalizeKey(e.nombre).indexOf(termKey) < 0) return false;
       return true;
     });
 
@@ -1162,6 +1240,18 @@ function gymRenderEjercicioDetail(panel, ej) {
   header.appendChild(createElement('div', { class: 'gym-dir-detail-title' }, [ej.nombre]));
   var muscles = gymParseMuscleArr(ej.musculo_primario);
   header.appendChild(createElement('div', { class: 'gym-dir-detail-muscle' }, [(ej.tipo || 'Sin tipo') + ' · ' + (muscles.join(' · ') || 'sin músculo')]));
+
+  var editBtn = createElement('button', {
+    class: 'gym-btn-secondary',
+    style: 'margin-top:10px;padding:8px 14px;font-size:13px;'
+  }, ['✏️ Editar músculos']);
+  editBtn.addEventListener('click', function() {
+    gymOpenEditMusclesModal(ej, function(updated) {
+      gymRenderEjercicioDetail(panel, updated);
+    });
+  });
+  header.appendChild(editBtn);
+
   panel.appendChild(header);
 
   // Historial: lista de sesiones en que aparece, de más reciente a más antiguo
