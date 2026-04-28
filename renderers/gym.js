@@ -1,14 +1,13 @@
-// ─── renderers/gym.js — Gym module (Benny Builds It Workout Tracker) ───────────
+// ─── renderers/gym.js — Gym module (Claude Design V3 redesign) ────────────────
 // 3 tabs:
-//   Entrenar     — Workout Planner. Sesión activa, cronómetro, sets Pending/Done/Skipped
-//   Ejercicios   — Exercise Library. Lista agrupada por Muscle Group / filtrable por Type
-//   Progresión   — Completed Workouts + PR per ejercicio + export/import backup
+//   Entrenar     — Sesión activa con cronómetro + rest timer + sets Pending/Done/Skipped
+//   Ejercicios   — Library con search + pills filtrables + lista agrupada por rutina
+//   Progresión   — Hero "Récord de la semana" + lista de ejercicios + detalle por ejercicio
 //
-// IndexedDB stores usados (via db.js, sin tocar db.js):
-//   sesiones   { id, fecha (ISO), finalizada (bool), nombre?, timestamp_inicio?, duracion_ms? }
-//   ejercicios { id, nombre (unique), musculo_primario (JSON string array), tipo? }
+// IndexedDB stores (via db.js, sin tocar db.js):
+//   sesiones   { id, fecha, finalizada, nombre?, timestamp_inicio?, duracion_ms?, routine_type? }
+//   ejercicios { id, nombre, musculo_primario, tipo? }
 //   sets       { id, sesion_id, ejercicio_id, peso, reps, orden?, status? }
-// Los campos con "?" son aditivos — registros antiguos sin ellos siguen funcionando.
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
 var GYM_MUSCLE_GROUPS = [
@@ -20,20 +19,19 @@ var GYM_MUSCLE_GROUPS = [
   'Piernas','Cuádriceps','Isquiotibiales','Gemelos','Aductores','Abductores','Tibial',
   'Glúteos','Cuello'
 ];
-// Tipos de rutina = nombres definidos por el usuario (free-text). Se descubren dinámicamente.
 var GYM_STATUS = { PENDING: 'Pending', DONE: 'Done', SKIPPED: 'Skipped' };
-var GYM_STATUS_ICON = { Pending: '🔲', Done: '✅', Skipped: '❌' };
+
+// Config rest timer
+var GYM_REST_DURATION = 90;
 
 // ─── Estado en memoria ─────────────────────────────────────────────────────────
 var _gymTimerId = null;
 var _gymRestTimerId = null;
-var _gymRestSeconds = 90;
 var _gymRestRemaining = 0;
-// Session cuya prompt de "Reanudar" ya fue resuelta en este page load.
-// Permite cambiar de tab y volver sin re-disparar el modal.
 var _gymAcknowledgedSession = null;
+var _gymRestTotal = GYM_REST_DURATION;
 
-// ─── Unidades (kg canonical en DB, display siempre lbs; toggle por-set en input) ─
+// ─── Unidades ──────────────────────────────────────────────────────────────────
 var KG_PER_LB = 0.45359237;
 function gymKgToLbs(kg) {
   var n = Number(kg);
@@ -50,6 +48,11 @@ function gymFormatWeight(kg) {
   if (lbs === null) return '—';
   return (Math.round(lbs * 10) / 10) + ' lbs';
 }
+function gymWeightLbsNum(kg) {
+  var lbs = gymKgToLbs(kg);
+  if (lbs === null) return null;
+  return Math.round(lbs * 10) / 10;
+}
 
 // ─── Utilidades ────────────────────────────────────────────────────────────────
 function gymParseMuscleArr(raw) {
@@ -59,8 +62,6 @@ function gymParseMuscleArr(raw) {
   catch (e) { return [String(raw)]; }
 }
 
-// Clave normalizada para dedupe + búsqueda accent/case-insensitive
-// ("Bíceps" === "biceps", "Tríceps" === "triceps").
 function gymNormalizeKey(s) {
   if (!s) return '';
   return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
@@ -89,46 +90,43 @@ function gymFormatDuration(ms) {
   var m = Math.floor((total % 3600) / 60);
   var s = total % 60;
   var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
-  return (h > 0 ? h + ':' + pad(m) : m) + ':' + pad(s);
+  return (h > 0 ? h + ':' + pad(m) : pad(m)) + ':' + pad(s);
 }
 
-function gymTodayISO() {
-  var d = new Date();
-  return d.toISOString();
-}
-
-function gymStatusChip(status) {
+function gymStatusChip(status, onClick) {
   var s = status || GYM_STATUS.PENDING;
-  var colorMap = {
-    Pending: 'var(--t3)',
-    Done:    'var(--accent)',
-    Skipped: 'var(--red)'
-  };
-  var bgMap = {
-    Pending: 'rgba(255,255,255,0.06)',
-    Done:    'var(--accent-dim)',
-    Skipped: 'rgba(255,69,58,0.15)'
-  };
-  return createElement('span', {
-    class: 'gym-status-chip',
-    style: 'display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:3px 10px;border-radius:980px;background:' + bgMap[s] + ';color:' + colorMap[s] + ';'
-  }, [GYM_STATUS_ICON[s] + ' ' + s]);
+  var cfg = {
+    Pending: { icon: '○', label: 'Pendiente' },
+    Done:    { icon: '✓', label: 'Hecho' },
+    Skipped: { icon: '✕', label: 'Saltado' }
+  }[s];
+  var btn = createElement('button', {
+    class: 'g-chip g-chip-' + s,
+    type: 'button'
+  }, [
+    createElement('span', { style: 'font-weight:700;' }, [cfg.icon]),
+    cfg.label
+  ]);
+  if (onClick) btn.addEventListener('click', onClick);
+  return btn;
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 function renderGymModule(container) {
   container.innerHTML = '';
 
-  // Tabs
+  // Título grande "Gym" + tab bar
+  container.appendChild(createElement('h1', { class: 'g-screen-title' }, ['Gym']));
+
   var tabBar = createElement('div', { class: 'main-tabs' });
   var tabContent = createElement('div', { id: 'gym-tab-content' });
   container.appendChild(tabBar);
   container.appendChild(tabContent);
 
   var tabs = [
-    { id: 'entrenar', label: '▶ Entrenar' },
-    { id: 'ejercicios', label: '📚 Ejercicios' },
-    { id: 'progresion', label: '📈 Progresión' }
+    { id: 'entrenar',   label: 'Entrenar' },
+    { id: 'ejercicios', label: 'Ejercicios' },
+    { id: 'progresion', label: 'Progresión' }
   ];
 
   var panels = {};
@@ -136,7 +134,7 @@ function renderGymModule(container) {
     var isFirst = i === 0;
     var btn = createElement('button', {
       class: 'main-tab' + (isFirst ? ' active' : ''),
-      id: 'gym-tab-btn-' + tab.id
+      id: 'gym-tab-btn-' + tab.id, type: 'button'
     }, [tab.label]);
     btn.addEventListener('click', function() { gymSwitchTab(tab.id, tabs, panels); });
     tabBar.appendChild(btn);
@@ -162,7 +160,6 @@ function gymSwitchTab(activeId, tabs, panels) {
     if (btn) btn.classList.toggle('active', isActive);
     if (panel) panel.classList.toggle('active', isActive);
   });
-  // Refresh data-sensitive tabs al volver a entrar
   if (activeId === 'entrenar')   gymRenderEntrenar(panels.entrenar);
   if (activeId === 'ejercicios') gymRenderEjercicios(panels.ejercicios);
   if (activeId === 'progresion') gymRenderProgresion(panels.progresion);
@@ -170,7 +167,7 @@ function gymSwitchTab(activeId, tabs, panels) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// TAB 1 — ENTRENAR (Workout Planner)
+// TAB 1 — ENTRENAR
 // ══════════════════════════════════════════════════════════════════════════════
 function gymRenderEntrenar(panel) {
   panel.innerHTML = '';
@@ -179,11 +176,10 @@ function gymRenderEntrenar(panel) {
   dbGetAll('sesiones').then(function(sesiones) {
     var activa = sesiones.find(function(s) { return s.finalizada === false; });
     if (activa) {
-      // Si el usuario ya resolvió el prompt en este page load, ir directo a la sesión.
       if (_gymAcknowledgedSession === activa.id) {
         gymRenderActiveSession(panel, activa);
       } else {
-        gymPromptResume(panel, activa, sesiones);
+        gymPromptResume(panel, activa);
       }
     } else {
       _gymAcknowledgedSession = null;
@@ -192,93 +188,124 @@ function gymRenderEntrenar(panel) {
   });
 }
 
-function gymPromptResume(panel, activa, sesiones) {
-  // Check session age — if older than 24h, default to "ajustar hora"
+function gymPromptResume(panel, activa) {
   var startTs = activa.timestamp_inicio || (activa.fecha ? new Date(activa.fecha).getTime() : Date.now());
   var age = Date.now() - startTs;
 
-  var modal = createElement('div', { class: 'gym-modal' });
-  modal.appendChild(createElement('div', { class: 'gym-modal-title' }, ['Sesión sin finalizar']));
-  modal.appendChild(createElement('div', {
-    style: 'color:var(--t2);font-size:14px;margin-bottom:16px;line-height:1.5;'
-  }, [
-    (activa.nombre || 'Workout') + ' · iniciada hace ' + gymFormatDuration(age) + '. ¿Qué hacer con ella?'
-  ]));
+  // Contar sets/ejercicios
+  Promise.all([dbGetAll('sets'), dbGetAll('ejercicios')]).then(function(r) {
+    var sets = r[0].filter(function(s) { return s.sesion_id === activa.id; });
+    var realSets = sets.filter(function(s) {
+      return !(s.status === GYM_STATUS.PENDING && Number(s.peso) === 0 && Number(s.reps) === 0);
+    });
+    var ejIds = {};
+    sets.forEach(function(s) { ejIds[s.ejercicio_id] = true; });
+    var nEj = Object.keys(ejIds).length;
 
-  var btnResume = createElement('button', { class: 'gym-btn-primary' }, ['▶ Reanudar']);
-  btnResume.addEventListener('click', function() {
-    overlay.remove();
-    _gymAcknowledgedSession = activa.id;
-    gymRenderActiveSession(panel, activa);
+    var modal = createElement('div', { class: 'g-modal' });
+    modal.appendChild(createElement('div', { class: 'g-modal-handle' }));
+    var head = createElement('div', { class: 'g-modal-head' }, [
+      createElement('div', { class: 'g-modal-title' }, ['Sesión sin terminar']),
+      gymBuildModalClose(function() { closeOverlay(); })
+    ]);
+    modal.appendChild(head);
+
+    var summary = createElement('div', { class: 'g-resume-summary' });
+    summary.appendChild(createElement('div', { class: 'g-resume-meta' }, [
+      ((activa.routine_type || '').toUpperCase()) + ' · iniciada hace ' + gymFormatDuration(age)
+    ]));
+    var stats = createElement('div', { class: 'g-resume-stats' }, [
+      createElement('div', {}, [
+        createElement('span', { class: 'g-resume-num' }, [String(nEj)]),
+        createElement('span', { class: 'g-resume-unit' }, [nEj === 1 ? 'ejercicio' : 'ejercicios'])
+      ]),
+      createElement('div', {}, [
+        createElement('span', { class: 'g-resume-num' }, [String(realSets.length)]),
+        createElement('span', { class: 'g-resume-unit' }, [realSets.length === 1 ? 'set' : 'sets'])
+      ]),
+      createElement('div', {}, [
+        createElement('span', { class: 'g-resume-num' }, [gymFormatDuration(age)]),
+        createElement('span', { class: 'g-resume-unit' }, ['transcurrido'])
+      ])
+    ]);
+    summary.appendChild(stats);
+    modal.appendChild(summary);
+
+    var btnResume = createElement('button', { class: 'g-btn-primary', type: 'button' }, ['Reanudar sesión']);
+    btnResume.addEventListener('click', function() {
+      closeOverlay();
+      _gymAcknowledgedSession = activa.id;
+      gymRenderActiveSession(panel, activa);
+    });
+    var btnSave = createElement('button', { class: 'g-btn-secondary', type: 'button' }, ['Guardar y cerrar']);
+    btnSave.addEventListener('click', function() {
+      closeOverlay();
+      activa.finalizada = true;
+      activa.duracion_ms = activa.duracion_ms || age;
+      dbPut('sesiones', activa).then(function() { gymRenderEntrenar(panel); });
+    });
+    var btnDelete = createElement('button', { class: 'g-btn-destructive', type: 'button' }, ['Eliminar sesión']);
+    btnDelete.addEventListener('click', function() {
+      closeOverlay();
+      dbGetAll('sets').then(function(all) {
+        var toDelete = all.filter(function(s) { return s.sesion_id === activa.id; });
+        return Promise.all(toDelete.map(function(s) { return dbDelete('sets', s.id); }));
+      }).then(function() {
+        return dbDelete('sesiones', activa.id);
+      }).then(function() { gymRenderEntrenar(panel); });
+    });
+    modal.appendChild(btnResume);
+    modal.appendChild(btnSave);
+    modal.appendChild(btnDelete);
+
+    var overlay = gymOpenOverlay(modal);
+    function closeOverlay() { overlay.remove(); }
   });
-
-  var btnSaveAs = createElement('button', { class: 'gym-btn-secondary' }, ['💾 Guardar como está']);
-  btnSaveAs.addEventListener('click', function() {
-    overlay.remove();
-    activa.finalizada = true;
-    activa.duracion_ms = activa.duracion_ms || age;
-    dbPut('sesiones', activa).then(function() { gymRenderEntrenar(panel); });
-  });
-
-  var btnDelete = createElement('button', { class: 'gym-btn-danger' }, ['🗑 Eliminar']);
-  btnDelete.addEventListener('click', function() {
-    overlay.remove();
-    // Eliminar sesión + sets asociados
-    dbGetAll('sets').then(function(sets) {
-      var toDelete = sets.filter(function(st) { return st.sesion_id === activa.id; });
-      return Promise.all(toDelete.map(function(st) { return dbDelete('sets', st.id); }));
-    }).then(function() {
-      return dbDelete('sesiones', activa.id);
-    }).then(function() { gymRenderEntrenar(panel); });
-  });
-
-  modal.appendChild(btnResume);
-  modal.appendChild(btnSaveAs);
-  modal.appendChild(btnDelete);
-
-  var overlay = createElement('div', { class: 'gym-modal-overlay' }, [modal]);
-  document.body.appendChild(overlay);
 }
 
 function gymRenderStartScreen(panel, sesiones) {
   panel.innerHTML = '';
+  var wrap = createElement('div', { class: 'g-start' });
 
-  var wrap = createElement('div', { class: 'gym-start-screen', style: 'padding:20px;' });
-
-  // Últimas 3 sesiones
   var finalizadas = sesiones
     .filter(function(s) { return s.finalizada === true; })
-    .sort(function(a, b) { return (b.timestamp_inicio || new Date(b.fecha).getTime()) - (a.timestamp_inicio || new Date(a.fecha).getTime()); })
+    .sort(function(a, b) {
+      return (b.timestamp_inicio || new Date(b.fecha).getTime()) -
+             (a.timestamp_inicio || new Date(a.fecha).getTime());
+    })
     .slice(0, 3);
 
   if (finalizadas.length > 0) {
-    wrap.appendChild(createElement('div', {
-      style: 'font-size:13px;color:var(--t3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;font-weight:600;'
-    }, ['ÚLTIMAS SESIONES']));
-
-    var list = createElement('div', { style: 'display:flex;flex-direction:column;gap:10px;margin-bottom:28px;' });
-    var pending = finalizadas.map(function(s) {
-      return dbGetAll('sets').then(function(all) {
-        var count = all.filter(function(st) { return st.sesion_id === s.id; }).length;
-        var card = createElement('div', {
-          style: 'background:var(--bg-card);border-radius:var(--radius-md);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;'
-        });
-        var left = createElement('div', {}, [
-          createElement('div', { style: 'font-weight:600;font-size:15px;color:var(--t1);margin-bottom:2px;' }, [s.nombre || 'Workout']),
-          createElement('div', { style: 'font-size:13px;color:var(--t2);' }, [gymFormatDateLong(s.fecha) + ' · ' + count + (count === 1 ? ' set' : ' sets')])
+    wrap.appendChild(createElement('div', { class: 'g-section-label', style: 'padding-left:4px;padding-top:0;' }, ['ÚLTIMAS SESIONES']));
+    var list = createElement('div', { class: 'g-recent-list' });
+    dbGetAll('sets').then(function(all) {
+      finalizadas.forEach(function(s) {
+        var setsCount = all.filter(function(st) {
+          return st.sesion_id === s.id
+            && !(st.status === GYM_STATUS.PENDING && Number(st.peso) === 0 && Number(st.reps) === 0);
+        }).length;
+        var card = createElement('div', { class: 'g-recent-card' }, [
+          createElement('div', {}, [
+            createElement('div', { class: 'g-recent-name' }, [s.nombre || 'Workout']),
+            createElement('div', { class: 'g-recent-sub' }, [
+              gymFormatDateLong(s.fecha) + ' · ' + setsCount + (setsCount === 1 ? ' set' : ' sets')
+            ])
+          ]),
+          createElement('div', { class: 'g-recent-meta' }, [
+            s.duracion_ms ? gymFormatDuration(s.duracion_ms) : ''
+          ])
         ]);
-        var right = gymStatusChip(GYM_STATUS.DONE);
-        card.appendChild(left);
-        card.appendChild(right);
         list.appendChild(card);
       });
     });
-    Promise.all(pending).then(function() { /* ya appended */ });
     wrap.appendChild(list);
+  } else {
+    wrap.appendChild(createElement('div', { class: 'g-empty-card' }, [
+      'Aún no hay sesiones registradas. Toca "Iniciar sesión" para empezar tu primera rutina.'
+    ]));
   }
 
-  // CTA: Iniciar sesión
-  var startBtn = createElement('button', { class: 'gym-btn-primary' }, ['▶ Iniciar sesión']);
+  var startBtn = createElement('button', { class: 'g-start-cta', type: 'button' }, ['▶ Iniciar sesión']);
   startBtn.addEventListener('click', function() { gymShowStartModal(panel); });
   wrap.appendChild(startBtn);
 
@@ -286,24 +313,32 @@ function gymRenderStartScreen(panel, sesiones) {
 }
 
 function gymShowStartModal(panel) {
-  var modal = createElement('div', { class: 'gym-modal' });
-  modal.appendChild(createElement('div', { class: 'gym-modal-title' }, ['Nueva sesión']));
-  modal.appendChild(createElement('div', {
-    style: 'color:var(--t2);font-size:14px;margin-bottom:10px;'
-  }, ['Nombre de la rutina:']));
+  var modal = createElement('div', { class: 'g-modal' });
+  modal.appendChild(createElement('div', { class: 'g-modal-handle' }));
+  var head = createElement('div', { class: 'g-modal-head' }, [
+    createElement('div', { class: 'g-modal-title' }, ['Iniciar sesión']),
+    gymBuildModalClose(function() { overlay.remove(); })
+  ]);
+  modal.appendChild(head);
 
+  modal.appendChild(createElement('div', { class: 'g-modal-sub' }, ['Tipo de rutina']));
   var input = createElement('input', {
-    class: 'gym-search-input',
-    type: 'text',
+    class: 'g-modal-input', type: 'text',
     placeholder: 'Ej. Upper, Push, Leg Day…',
     autocomplete: 'off'
   });
   modal.appendChild(input);
 
-  var sugg = createElement('div', { class: 'gym-suggestions' });
+  var pillsLabel = createElement('div', { class: 'g-modal-sub', style: 'margin-top:14px;' }, ['Recientes']);
+  modal.appendChild(pillsLabel);
+  var pills = createElement('div', { class: 'g-pills', style: 'margin-bottom:12px;' });
+  modal.appendChild(pills);
+
+  var sugg = createElement('div', { class: 'g-suggest' });
+  sugg.style.display = 'none';
   modal.appendChild(sugg);
 
-  var startBtn = createElement('button', { class: 'gym-btn-primary' }, ['▶ Iniciar']);
+  var startBtn = createElement('button', { class: 'g-btn-primary', type: 'button' }, ['Comenzar entrenamiento']);
   startBtn.addEventListener('click', function() {
     var name = input.value.trim();
     if (!name) { showToast('Escribe un nombre para la rutina'); return; }
@@ -312,48 +347,64 @@ function gymShowStartModal(panel) {
   });
   modal.appendChild(startBtn);
 
-  var cancelBtn = createElement('button', { class: 'gym-btn-secondary' }, ['Cancelar']);
-  cancelBtn.addEventListener('click', function() { overlay.remove(); });
-  modal.appendChild(cancelBtn);
-
-  // Autocomplete: nombres de rutinas previas
+  // Cargar autocomplete de rutinas
   Promise.all([dbGetAll('sesiones'), dbGetAll('ejercicios')]).then(function(r) {
     var nameSet = {};
     r[0].forEach(function(s) { if (s.routine_type) nameSet[s.routine_type] = true; });
     r[1].forEach(function(e) { if (e.tipo) nameSet[e.tipo] = true; });
     var allNames = Object.keys(nameSet).sort();
-    var render = function(term) {
+
+    // Pills "recientes" (top 5 más recientes en sesiones)
+    var recentSorted = r[0].slice().sort(function(a, b) {
+      return (b.timestamp_inicio || 0) - (a.timestamp_inicio || 0);
+    });
+    var recents = [];
+    recentSorted.forEach(function(s) {
+      if (s.routine_type && recents.indexOf(s.routine_type) < 0 && recents.length < 6) {
+        recents.push(s.routine_type);
+      }
+    });
+    if (recents.length === 0) {
+      pillsLabel.style.display = 'none';
+    } else {
+      recents.forEach(function(name) {
+        var p = createElement('button', { class: 'g-pill', type: 'button' }, [name]);
+        p.addEventListener('click', function() {
+          input.value = name;
+          // marcar como activa visualmente
+          Array.prototype.forEach.call(pills.children, function(c) { c.classList.remove('active'); });
+          p.classList.add('active');
+          renderSugg('');
+        });
+        pills.appendChild(p);
+      });
+    }
+
+    function renderSugg(term) {
       sugg.innerHTML = '';
       var t = (term || '').trim();
       var tKey = gymNormalizeKey(t);
-      var filtered = allNames.filter(function(n) { return !tKey || gymNormalizeKey(n).indexOf(tKey) >= 0; });
-      if (filtered.length === 0 && !t) {
-        sugg.appendChild(createElement('div', {
-          style: 'padding:12px;color:var(--t3);font-size:13px;text-align:center;'
-        }, ['Sin rutinas previas. Escribe una nueva.']));
-        return;
-      }
+      if (!t) { sugg.style.display = 'none'; return; }
+      var filtered = allNames.filter(function(n) { return gymNormalizeKey(n).indexOf(tKey) >= 0; });
+      if (filtered.length === 0) { sugg.style.display = 'none'; return; }
       filtered.slice(0, 8).forEach(function(n) {
-        var item = createElement('div', { class: 'gym-suggestion-item' }, [n]);
+        var item = createElement('button', { class: 'g-suggest-row', type: 'button' }, [n]);
         item.addEventListener('click', function() {
-          overlay.remove();
-          gymCreateSession(panel, n);
+          input.value = n;
+          sugg.style.display = 'none';
         });
         sugg.appendChild(item);
       });
-    };
-    render('');
-    input.addEventListener('input', function() { render(input.value); });
+      sugg.style.display = '';
+    }
+    input.addEventListener('input', function() { renderSugg(input.value); });
   });
 
-  var overlay = createElement('div', { class: 'gym-modal-overlay' }, [modal]);
-  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
-  document.body.appendChild(overlay);
-  setTimeout(function() { input.focus(); }, 50);
+  var overlay = gymOpenOverlay(modal);
+  setTimeout(function() { input.focus(); }, 80);
 }
 
 function gymCreateSession(panel, routineType) {
-  // Nombre auto: "Workout #N" basado en cuántas sesiones existan + 1
   dbGetAll('sesiones').then(function(all) {
     var n = all.length + 1;
     var now = Date.now();
@@ -375,58 +426,46 @@ function gymCreateSession(panel, routineType) {
 // ─── Sesión activa ────────────────────────────────────────────────────────────
 function gymRenderActiveSession(panel, sesion) {
   panel.innerHTML = '';
+  var wrap = createElement('div', { class: 'g-train' });
 
-  // Header: nombre + fecha + cronómetro + status chip
-  var header = createElement('div', { class: 'gym-active-header' });
-  var titleRow = createElement('div', {
-    style: 'display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px;'
-  });
-  var titleBlock = createElement('div', {}, [
-    createElement('div', { class: 'gym-session-title' }, [sesion.nombre || 'Workout']),
-    createElement('div', { style: 'font-size:13px;color:var(--t2);margin-top:2px;' }, [gymFormatDateLong(sesion.fecha)])
+  // Card principal de sesión
+  var sessionCard = createElement('div', { class: 'g-session-card' });
+  sessionCard.appendChild(createElement('div', { class: 'g-session-meta' }, [
+    createElement('div', { class: 'g-session-rt' }, [(sesion.routine_type || '').toUpperCase()]),
+    createElement('div', { class: 'g-session-name' }, [sesion.nombre || 'Workout'])
+  ]));
+
+  var timerWrap = createElement('div', { class: 'g-session-timer-wrap' });
+  var timerLeft = createElement('div', {}, [
+    createElement('div', { class: 'g-session-timer-label' }, ['DURACIÓN']),
+    createElement('div', { class: 'g-session-timer', id: 'gym-session-timer' }, ['0:00'])
   ]);
-  titleRow.appendChild(titleBlock);
-
-  var bottomRow = createElement('div', {
-    style: 'display:flex;align-items:center;justify-content:flex-start;gap:12px;margin-top:6px;'
-  });
-  var timerEl = createElement('div', { class: 'gym-timer', id: 'gym-session-timer' }, ['0:00']);
-  bottomRow.appendChild(timerEl);
-
-  header.appendChild(titleRow);
-  header.appendChild(bottomRow);
-  panel.appendChild(header);
+  timerWrap.appendChild(timerLeft);
+  sessionCard.appendChild(timerWrap);
+  wrap.appendChild(sessionCard);
 
   gymStartSessionTimer(sesion.timestamp_inicio);
 
-  // Rest timer (inicialmente oculto)
-  var restBar = createElement('div', {
-    id: 'gym-rest-bar',
-    style: 'display:none;margin:0 20px 12px;padding:12px 16px;background:var(--accent-dim);border:1px solid var(--accent-border);border-radius:var(--radius-md);display:none;align-items:center;justify-content:space-between;gap:12px;'
-  });
-  panel.appendChild(restBar);
+  // Rest timer bar (oculto por default)
+  var restBar = createElement('div', { class: 'g-rest-bar hidden', id: 'gym-rest-bar' });
+  wrap.appendChild(restBar);
 
   // Lista de ejercicios
-  var exList = createElement('div', { class: 'gym-exercises-list', id: 'gym-ex-list' });
-  panel.appendChild(exList);
-
+  var exList = createElement('div', { id: 'gym-ex-list' });
+  wrap.appendChild(exList);
   gymRefreshSessionExercises(sesion, exList);
 
-  // Agregar ejercicio
-  var addExWrap = createElement('div', { style: 'padding: 12px 20px 6px;' });
-  var addExBtn = createElement('button', { class: 'gym-btn-secondary' }, ['+ Agregar ejercicio']);
-  addExBtn.addEventListener('click', function() {
-    gymShowAddExerciseModal(sesion, exList);
-  });
-  addExWrap.appendChild(addExBtn);
-  panel.appendChild(addExWrap);
+  // Botón agregar ejercicio
+  var addBtn = createElement('button', { class: 'g-add-exercise', type: 'button' }, ['+ Agregar ejercicio']);
+  addBtn.addEventListener('click', function() { gymShowAddExerciseModal(sesion, exList); });
+  wrap.appendChild(addBtn);
 
-  // Finalizar sesión
-  var finWrap = createElement('div', { style: 'padding: 20px 20px 80px;' });
-  var finBtn = createElement('button', { class: 'gym-btn-danger' }, ['Finalizar sesión']);
+  // Botón finalizar
+  var finBtn = createElement('button', { class: 'g-finalize', type: 'button' }, ['■ Finalizar sesión']);
   finBtn.addEventListener('click', function() { gymConfirmFinalize(sesion, panel); });
-  finWrap.appendChild(finBtn);
-  panel.appendChild(finWrap);
+  wrap.appendChild(finBtn);
+
+  panel.appendChild(wrap);
 }
 
 function gymStartSessionTimer(startTs) {
@@ -453,7 +492,6 @@ function gymRefreshSessionExercises(sesion, listEl) {
     var ejMap = {};
     ejercicios.forEach(function(e) { ejMap[e.id] = e; });
 
-    // Agrupar sets por ejercicio, preservando orden de aparición
     var order = [];
     var byEj = {};
     sets.forEach(function(st) {
@@ -462,103 +500,178 @@ function gymRefreshSessionExercises(sesion, listEl) {
     });
 
     if (order.length === 0) {
-      var hint = createElement('div', {
-        style: 'padding:32px 20px;text-align:center;color:var(--t3);font-size:14px;'
-      }, ['Toca "+ Agregar ejercicio" para empezar.']);
-      listEl.appendChild(hint);
+      listEl.appendChild(createElement('div', { class: 'g-empty-card' }, [
+        'Toca "+ Agregar ejercicio" para empezar.'
+      ]));
       return;
     }
 
-    order.forEach(function(ejId) {
+    order.forEach(function(ejId, i) {
       var ej = ejMap[ejId];
       if (!ej) return;
-      var card = gymBuildExerciseCard(sesion, ej, byEj[ejId], listEl);
+      var card = gymBuildExerciseCard(sesion, ej, byEj[ejId], listEl, i === 0);
       listEl.appendChild(card);
     });
   });
 }
 
-function gymBuildExerciseCard(sesion, ej, sets, listEl) {
-  var card = createElement('div', { class: 'gym-exercise-card' });
+function gymBuildExerciseCard(sesion, ej, sets, listEl, defaultExpanded) {
+  var card = createElement('div', { class: 'g-ex-card' + (defaultExpanded ? ' open' : '') });
 
-  // Header: nombre + delete
-  var head = createElement('div', { style: 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;' });
-  head.appendChild(createElement('div', { class: 'gym-exercise-name' }, [ej.nombre]));
-  var delEx = createElement('button', {
-    class: 'gym-set-delete',
-    title: 'Quitar ejercicio',
-    style: 'font-size:16px;'
-  }, ['🗑']);
+  var visibleSets = sets.filter(function(st) {
+    return !(st.status === GYM_STATUS.PENDING && Number(st.peso) === 0 && Number(st.reps) === 0);
+  }).sort(function(a, b) { return (a.orden || a.id) - (b.orden || b.id); });
+  var doneCount = visibleSets.filter(function(s) { return s.status === GYM_STATUS.DONE; }).length;
+  var totalCount = visibleSets.length;
+
+  // Header (clickable para expandir)
+  var head = createElement('button', { class: 'g-ex-head', type: 'button' });
+  var muscleStr = gymParseMuscleArr(ej.musculo_primario).join(' · ') || 'sin músculo';
+  head.appendChild(createElement('div', {}, [
+    createElement('div', { class: 'g-ex-name' }, [ej.nombre]),
+    createElement('div', { class: 'g-ex-muscle' }, [muscleStr])
+  ]));
+  var headRight = createElement('div', { class: 'g-ex-head-right' });
+  headRight.appendChild(createElement('div', { class: 'g-ex-count' }, [
+    doneCount + '/' + (totalCount || '—')
+  ]));
+  var chev = ICON.chevronDown({ size: 18 });
+  chev.setAttribute('class', 'g-ex-chevron');
+  headRight.appendChild(chev);
+  head.appendChild(headRight);
+  head.addEventListener('click', function() { card.classList.toggle('open'); });
+  card.appendChild(head);
+
+  // Body
+  var body = createElement('div', { class: 'g-ex-body' });
+
+  // Tools (delete exercise)
+  var tools = createElement('div', { class: 'g-ex-tools' });
+  var delEx = createElement('button', { class: 'g-ex-del', type: 'button', title: 'Quitar ejercicio' }, ['🗑']);
   delEx.addEventListener('click', function() {
     gymConfirmAction('¿Eliminar ejercicio y sus sets de esta sesión?', function() {
       Promise.all(sets.map(function(s) { return dbDelete('sets', s.id); }))
         .then(function() { gymRefreshSessionExercises(sesion, listEl); });
     });
   });
-  head.appendChild(delEx);
-  card.appendChild(head);
+  tools.appendChild(delEx);
+  body.appendChild(tools);
 
-  // Última sesión — expandible (▶ todas las series, reps y peso de la última vez)
-  var lastWrap = createElement('details', {
-    class: 'gym-last-session',
-    style: 'margin:2px 0 10px;background:rgba(255,255,255,0.03);border-radius:var(--radius-sm);padding:6px 10px;'
+  // Última sesión collapsible
+  var lastToggle = createElement('button', { class: 'g-last-toggle', type: 'button' }, [
+    createElement('span', { class: 'g-last-chev' }, ['›']),
+    'Última sesión'
+  ]);
+  var lastDateSpan = createElement('span', { class: 'g-last-date' });
+  lastToggle.appendChild(lastDateSpan);
+  body.appendChild(lastToggle);
+
+  var lastBody = createElement('div', { class: 'g-last-body' }, [
+    createElement('div', { class: 'g-last-empty' }, ['Cargando…'])
+  ]);
+  body.appendChild(lastBody);
+
+  lastToggle.addEventListener('click', function() {
+    var open = lastToggle.classList.toggle('open');
+    card.classList.toggle('last-open', open);
   });
-  var lastSummary = createElement('summary', {
-    style: 'font-size:12px;color:var(--t2);cursor:pointer;list-style:none;font-weight:500;'
-  }, ['▸ Última sesión']);
-  lastWrap.appendChild(lastSummary);
-  var lastBody = createElement('div', {
-    style: 'margin-top:8px;font-size:13px;color:var(--t2);line-height:1.5;'
-  }, ['Cargando…']);
-  lastWrap.appendChild(lastBody);
-  card.insertBefore(lastWrap, card.children[1] || null);
 
   gymGetLastSessionSetsForEjercicio(ej.id, sesion.id).then(function(prev) {
     lastBody.innerHTML = '';
     if (!prev || !prev.sets || prev.sets.length === 0) {
-      lastBody.appendChild(createElement('div', { style: 'color:var(--t3);' }, ['N/A — sin registros previos']));
+      lastBody.appendChild(createElement('div', { class: 'g-last-empty' }, ['N/A — sin registros previos']));
       return;
     }
-    lastBody.appendChild(createElement('div', {
-      style: 'font-size:12px;color:var(--t3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;'
-    }, [gymFormatDateLong(prev.fecha)]));
+    lastDateSpan.textContent = ' · ' + gymFormatDateShort(prev.fecha);
+    lastBody.appendChild(createElement('div', { class: 'g-last-header' }, [gymFormatDateLong(prev.fecha)]));
     prev.sets.forEach(function(st, i) {
-      var pesoStr = isFinite(Number(st.peso)) ? gymFormatWeight(st.peso) : '—';
-      var repsStr = isFinite(Number(st.reps)) ? st.reps : '—';
-      lastBody.appendChild(createElement('div', {
-        style: 'display:flex;justify-content:space-between;padding:2px 0;'
-      }, [
-        createElement('span', { style: 'color:var(--t3);' }, ['Set #' + (i + 1)]),
-        createElement('span', { style: 'color:var(--t1);font-weight:500;' }, [pesoStr + ' × ' + repsStr + ' reps'])
+      var lbsNum = gymWeightLbsNum(st.peso);
+      var pesoLabel = lbsNum != null ? lbsNum : '—';
+      lastBody.appendChild(createElement('div', { class: 'g-last-row' }, [
+        createElement('span', {}, ['Set ' + (i + 1)]),
+        createElement('span', {}, [
+          createElement('b', {}, [String(pesoLabel)]),
+          ' lbs × ',
+          createElement('b', {}, [String(st.reps)])
+        ])
       ]));
     });
   });
 
-  // Sets rows — ocultar placeholders Pending 0/0 (solo sirven para mantener el ejercicio adjunto)
-  var visibleSets = sets.filter(function(st) {
-    return !(st.status === GYM_STATUS.PENDING && Number(st.peso) === 0 && Number(st.reps) === 0);
-  });
-  visibleSets.sort(function(a, b) { return (a.orden || a.id) - (b.orden || b.id); });
+  // Sets list
+  var setsList = createElement('div', { class: 'g-sets-list' });
   visibleSets.forEach(function(st, idx) {
-    var row = gymBuildSetRow(sesion, ej, st, idx + 1, listEl);
-    card.appendChild(row);
+    setsList.appendChild(gymBuildSetRow(sesion, ej, st, idx + 1, listEl));
+  });
+  body.appendChild(setsList);
+
+  // Add set row
+  body.appendChild(gymBuildAddSetRow(sesion, ej, sets, listEl));
+
+  card.appendChild(body);
+  return card;
+}
+
+function gymBuildSetRow(sesion, ej, set, setNum, listEl) {
+  var row = createElement('div', { class: 'g-set-row' });
+  var status = set.status || GYM_STATUS.DONE;
+  var lbsNum = gymWeightLbsNum(set.peso);
+  var pesoLabel = lbsNum != null ? String(lbsNum) : '—';
+
+  row.appendChild(createElement('div', { class: 'g-set-n' }, ['Set ' + setNum]));
+  row.appendChild(createElement('div', { class: 'g-set-val' }, [
+    createElement('b', {}, [pesoLabel]),
+    createElement('span', {}, ['lbs'])
+  ]));
+  row.appendChild(createElement('div', { class: 'g-set-times' }, ['×']));
+  row.appendChild(createElement('div', { class: 'g-set-val' }, [
+    createElement('b', {}, [String(set.reps)])
+  ]));
+
+  var chip = gymStatusChip(status, function() {
+    var next = status === GYM_STATUS.PENDING ? GYM_STATUS.DONE :
+               status === GYM_STATUS.DONE    ? GYM_STATUS.SKIPPED :
+               GYM_STATUS.PENDING;
+    set.status = next;
+    dbPut('sets', set).then(function() { gymRefreshSessionExercises(sesion, listEl); });
+  });
+  row.appendChild(chip);
+
+  var del = createElement('button', { class: 'g-set-del', type: 'button', title: 'Eliminar set' }, ['×']);
+  del.addEventListener('click', function() {
+    dbDelete('sets', set.id).then(function() { gymRefreshSessionExercises(sesion, listEl); });
+  });
+  row.appendChild(del);
+  return row;
+}
+
+function gymBuildAddSetRow(sesion, ej, sets, listEl) {
+  var setUnit = 'lbs';
+  var addRow = createElement('div', { class: 'g-add-set' });
+  var pesoInput = createElement('input', {
+    class: 'g-input-num', type: 'number',
+    placeholder: 'Peso', step: '0.5', inputmode: 'decimal'
   });
 
-  // Agregar set — con toggle por-input lbs/kg (default lbs)
-  var setUnit = 'lbs';
-  var addSetRow = createElement('div', { class: 'gym-add-set-row' });
-  var pesoInput = createElement('input', { class: 'gym-input-small', type: 'number', placeholder: 'Peso (lbs)', step: '0.5' });
-  var unitToggle = createElement('button', {
-    type: 'button',
-    style: 'background:rgba(255,255,255,0.06);border:1px solid var(--sep);color:var(--t1);font-size:13px;font-weight:600;padding:0 12px;border-radius:var(--radius-sm);min-height:44px;cursor:pointer;'
-  }, ['lbs']);
-  unitToggle.addEventListener('click', function() {
-    setUnit = setUnit === 'lbs' ? 'kg' : 'lbs';
-    unitToggle.textContent = setUnit;
-    pesoInput.placeholder = 'Peso (' + setUnit + ')';
+  // Toggle de unidad estilo segmented control
+  var lbsBtn = createElement('button', { type: 'button', class: 'active' }, ['lbs']);
+  var kgBtn = createElement('button', { type: 'button' }, ['kg']);
+  var unitToggle = createElement('div', { class: 'g-unit-toggle' }, [lbsBtn, kgBtn]);
+  function setUnitActive(u) {
+    setUnit = u;
+    lbsBtn.classList.toggle('active', u === 'lbs');
+    kgBtn.classList.toggle('active', u === 'kg');
+  }
+  lbsBtn.addEventListener('click', function() { setUnitActive('lbs'); });
+  kgBtn.addEventListener('click', function() { setUnitActive('kg'); });
+
+  var repsInput = createElement('input', {
+    class: 'g-input-num', type: 'number',
+    placeholder: 'Reps', step: '1', inputmode: 'numeric'
   });
-  var repsInput = createElement('input', { class: 'gym-input-small', type: 'number', placeholder: 'Reps', step: '1' });
-  var confirmBtn = createElement('button', { class: 'gym-confirm-set-btn' }, ['+ Set']);
+  var confirmBtn = createElement('button', {
+    class: 'g-confirm-set', type: 'button', title: 'Confirmar set'
+  }, ['+']);
   confirmBtn.addEventListener('click', function() {
     var inputVal = parseFloat(pesoInput.value);
     var reps = parseInt(repsInput.value, 10);
@@ -581,66 +694,15 @@ function gymBuildExerciseCard(sesion, ej, sets, listEl) {
       gymStartRestTimer();
     });
   });
-  addSetRow.appendChild(pesoInput);
-  addSetRow.appendChild(unitToggle);
-  addSetRow.appendChild(repsInput);
-  addSetRow.appendChild(confirmBtn);
-  card.appendChild(addSetRow);
 
-  return card;
+  addRow.appendChild(pesoInput);
+  addRow.appendChild(unitToggle);
+  addRow.appendChild(repsInput);
+  addRow.appendChild(confirmBtn);
+  return addRow;
 }
 
-function gymBuildSetRow(sesion, ej, set, setNum, listEl) {
-  var row = createElement('div', { class: 'gym-set-row' });
-  var status = set.status || GYM_STATUS.DONE;
-
-  var label = createElement('div', {
-    style: 'font-size:14px;color:var(--t2);font-weight:500;min-width:54px;'
-  }, ['Set #' + setNum]);
-
-  var pesoStr = isFinite(Number(set.peso)) ? gymFormatWeight(set.peso) : '—';
-  var repsStr = isFinite(Number(set.reps)) ? set.reps : '—';
-  var vals = createElement('div', {
-    style: 'flex:1;font-size:15px;color:var(--t1);font-weight:500;'
-  }, [pesoStr + ' × ' + repsStr + ' reps']);
-
-  // Status toggle: Pending → Done → Skipped → Pending
-  var chip = gymStatusChip(status);
-  chip.style.cursor = 'pointer';
-  chip.addEventListener('click', function() {
-    var next = status === GYM_STATUS.PENDING ? GYM_STATUS.DONE :
-               status === GYM_STATUS.DONE ? GYM_STATUS.SKIPPED :
-               GYM_STATUS.PENDING;
-    set.status = next;
-    dbPut('sets', set).then(function() { gymRefreshSessionExercises(sesion, listEl); });
-  });
-
-  var del = createElement('button', { class: 'gym-set-delete', title: 'Eliminar set' }, ['×']);
-  del.addEventListener('click', function() {
-    dbDelete('sets', set.id).then(function() { gymRefreshSessionExercises(sesion, listEl); });
-  });
-
-  row.appendChild(label);
-  row.appendChild(vals);
-  row.appendChild(chip);
-  row.appendChild(del);
-  return row;
-}
-
-function gymGetLastSetForEjercicio(ejercicio_id, excludeSesionId) {
-  return dbGetAll('sets').then(function(sets) {
-    var candidates = sets.filter(function(s) {
-      return s.ejercicio_id === ejercicio_id && s.sesion_id !== excludeSesionId;
-    });
-    if (candidates.length === 0) return null;
-    candidates.sort(function(a, b) { return b.sesion_id - a.sesion_id || b.id - a.id; });
-    return candidates[0];
-  });
-}
-
-// Devuelve todos los sets reales (no placeholders) de la sesión MÁS RECIENTE
-// previa al sesion_id actual para un ejercicio dado, junto con la fecha.
-// { fecha, sesion_id, sets: [...] } | null
+// ─── Última sesión por ejercicio ────────────────────────────────────────────────
 function gymGetLastSessionSetsForEjercicio(ejercicio_id, excludeSesionId) {
   return Promise.all([dbGetAll('sets'), dbGetAll('sesiones')]).then(function(r) {
     var sets = r[0], sesiones = r[1];
@@ -650,20 +712,17 @@ function gymGetLastSessionSetsForEjercicio(ejercicio_id, excludeSesionId) {
     var real = sets.filter(function(s) {
       if (s.ejercicio_id !== ejercicio_id) return false;
       if (s.sesion_id === excludeSesionId) return false;
-      // Excluir placeholders 0/0 Pending
       if (s.status === GYM_STATUS.PENDING && Number(s.peso) === 0 && Number(s.reps) === 0) return false;
       return true;
     });
     if (real.length === 0) return null;
 
-    // Agrupar por sesion_id
     var bySes = {};
     real.forEach(function(s) {
       if (!bySes[s.sesion_id]) bySes[s.sesion_id] = [];
       bySes[s.sesion_id].push(s);
     });
 
-    // Elegir la sesión más reciente por timestamp_inicio/fecha (con id como fallback)
     var sesionIds = Object.keys(bySes).map(function(k) { return Number(k); });
     sesionIds.sort(function(a, b) {
       var sa = sesionMap[a], sb = sesionMap[b];
@@ -674,43 +733,44 @@ function gymGetLastSessionSetsForEjercicio(ejercicio_id, excludeSesionId) {
     var pickId = sesionIds[0];
     var picked = bySes[pickId].slice().sort(function(a, b) { return (a.orden || a.id) - (b.orden || b.id); });
     var sesion = sesionMap[pickId];
-    return {
-      sesion_id: pickId,
-      fecha: sesion ? sesion.fecha : null,
-      sets: picked
-    };
+    return { sesion_id: pickId, fecha: sesion ? sesion.fecha : null, sets: picked };
   });
 }
 
+// ─── Rest timer ────────────────────────────────────────────────────────────────
 function gymStartRestTimer() {
   var bar = document.getElementById('gym-rest-bar');
   if (!bar) return;
   if (_gymRestTimerId) clearInterval(_gymRestTimerId);
-  _gymRestRemaining = _gymRestSeconds;
+  _gymRestRemaining = GYM_REST_DURATION;
+  _gymRestTotal = GYM_REST_DURATION;
+
   bar.innerHTML = '';
-  bar.style.display = 'flex';
+  bar.classList.remove('hidden');
 
-  var label = createElement('div', {
-    style: 'font-size:13px;color:var(--t2);font-weight:600;'
-  }, ['Descanso']);
-  var countdown = createElement('div', {
-    style: 'font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums;',
-    id: 'gym-rest-count'
-  }, [_gymRestRemaining + 's']);
-  var skipBtn = createElement('button', {
-    style: 'background:none;border:none;color:var(--t2);font-size:13px;font-weight:600;cursor:pointer;padding:4px 8px;'
-  }, ['Saltar']);
-  skipBtn.addEventListener('click', gymStopRestTimer);
+  var clockIcon = ICON.clock({ size: 16, color: 'var(--accent)' });
+  var label = createElement('div', { class: 'g-rest-label' }, ['Descanso']);
+  var time = createElement('div', { class: 'g-rest-time', id: 'gym-rest-time' }, [String(_gymRestRemaining) + 's']);
+  var prog = createElement('div', { class: 'g-rest-progress' });
+  var fill = createElement('div', { class: 'g-rest-progress-fill', id: 'gym-rest-fill' });
+  fill.style.width = '100%';
+  prog.appendChild(fill);
+  var skip = createElement('button', { class: 'g-rest-skip', type: 'button' }, ['Saltar']);
+  skip.addEventListener('click', gymStopRestTimer);
 
+  bar.appendChild(clockIcon);
   bar.appendChild(label);
-  bar.appendChild(countdown);
-  bar.appendChild(skipBtn);
+  bar.appendChild(time);
+  bar.appendChild(prog);
+  bar.appendChild(skip);
 
   _gymRestTimerId = setInterval(function() {
     _gymRestRemaining -= 1;
-    var c = document.getElementById('gym-rest-count');
-    if (!c) { gymStopRestTimer(); return; }
-    c.textContent = _gymRestRemaining + 's';
+    var t = document.getElementById('gym-rest-time');
+    var f = document.getElementById('gym-rest-fill');
+    if (!t || !f) { gymStopRestTimer(); return; }
+    t.textContent = _gymRestRemaining + 's';
+    f.style.width = ((_gymRestRemaining / _gymRestTotal) * 100) + '%';
     if (_gymRestRemaining <= 0) {
       gymStopRestTimer();
       if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
@@ -722,25 +782,32 @@ function gymStartRestTimer() {
 function gymStopRestTimer() {
   if (_gymRestTimerId) { clearInterval(_gymRestTimerId); _gymRestTimerId = null; }
   var bar = document.getElementById('gym-rest-bar');
-  if (bar) bar.style.display = 'none';
+  if (bar) bar.classList.add('hidden');
 }
 
-// ─── Modal: Agregar ejercicio a la sesión ──────────────────────────────────────
+// ─── Modal: agregar ejercicio a la sesión ──────────────────────────────────────
 function gymShowAddExerciseModal(sesion, listEl) {
-  var modal = createElement('div', { class: 'gym-modal' });
-  modal.appendChild(createElement('div', { class: 'gym-modal-title' }, ['Agregar ejercicio']));
+  var modal = createElement('div', { class: 'g-modal' });
+  modal.appendChild(createElement('div', { class: 'g-modal-handle' }));
+  modal.appendChild(createElement('div', { class: 'g-modal-head' }, [
+    createElement('div', { class: 'g-modal-title' }, ['Agregar ejercicio']),
+    gymBuildModalClose(function() { overlay.remove(); })
+  ]));
 
+  var searchWrap = createElement('div', { class: 'g-search-wrap' });
+  var sIcon = ICON.search({ size: 17 }); sIcon.setAttribute('class', 'g-search-icon');
+  searchWrap.appendChild(sIcon);
   var search = createElement('input', {
-    class: 'gym-search-input',
-    type: 'text',
-    placeholder: 'Buscar o crear ejercicio…'
+    class: 'g-search', type: 'text',
+    placeholder: 'Buscar ejercicio…', autocomplete: 'off'
   });
-  modal.appendChild(search);
+  searchWrap.appendChild(search);
+  modal.appendChild(searchWrap);
 
-  var suggestions = createElement('div', { class: 'gym-suggestions' });
-  modal.appendChild(suggestions);
+  var sugg = createElement('div', { class: 'g-suggest' });
+  modal.appendChild(sugg);
 
-  var newBtn = createElement('button', { class: 'gym-btn-secondary' }, ['+ Crear ejercicio nuevo']);
+  var newBtn = createElement('button', { class: 'g-btn-secondary', type: 'button' }, ['+ Crear ejercicio nuevo']);
   newBtn.addEventListener('click', function() {
     overlay.remove();
     gymShowNewExerciseModal(function(newEj) {
@@ -749,55 +816,43 @@ function gymShowAddExerciseModal(sesion, listEl) {
   });
   modal.appendChild(newBtn);
 
-  var cancelBtn = createElement('button', { class: 'gym-btn-secondary' }, ['Cancelar']);
-  cancelBtn.addEventListener('click', function() { overlay.remove(); });
-  modal.appendChild(cancelBtn);
-
   dbGetAll('ejercicios').then(function(all) {
-    var render = function(term) {
-      suggestions.innerHTML = '';
+    function render(term) {
+      sugg.innerHTML = '';
       var t = (term || '').trim();
       if (!t) {
-        suggestions.appendChild(createElement('div', {
-          style: 'padding:14px 12px;color:var(--t3);font-size:13px;text-align:center;'
-        }, ['Escribe para buscar ejercicios.']));
+        sugg.appendChild(createElement('div', { class: 'g-suggest-empty' }, ['Escribe para buscar.']));
         return;
       }
       var tKey = gymNormalizeKey(t);
-      var filtered = all.filter(function(e) {
-        return gymNormalizeKey(e.nombre).indexOf(tKey) >= 0;
-      }).sort(function(a, b) { return a.nombre.localeCompare(b.nombre); }).slice(0, 8);
+      var filtered = all.filter(function(e) { return gymNormalizeKey(e.nombre).indexOf(tKey) >= 0; })
+        .sort(function(a, b) { return a.nombre.localeCompare(b.nombre); }).slice(0, 8);
       if (filtered.length === 0) {
-        suggestions.appendChild(createElement('div', {
-          style: 'padding:12px;color:var(--t3);font-size:13px;text-align:center;'
-        }, ['Sin coincidencias. Usa "Crear ejercicio nuevo".']));
+        sugg.appendChild(createElement('div', { class: 'g-suggest-empty' }, ['Sin coincidencias. Usa "Crear ejercicio nuevo".']));
         return;
       }
       filtered.forEach(function(e) {
         var muscles = gymParseMuscleArr(e.musculo_primario).join(' · ');
-        var item = createElement('div', { class: 'gym-suggestion-item' }, [
-          createElement('div', { style: 'font-weight:500;color:var(--t1);' }, [e.nombre]),
-          createElement('div', { style: 'font-size:12px;color:var(--t3);margin-top:2px;' }, [(e.tipo || '—') + ' · ' + (muscles || 'sin músculo')])
+        var item = createElement('button', { class: 'g-suggest-row', type: 'button' }, [
+          createElement('div', { style: 'font-weight:600;color:var(--t1);' }, [e.nombre]),
+          createElement('div', { class: 'g-suggest-meta' }, [(e.tipo || '—') + ' · ' + (muscles || 'sin músculo')])
         ]);
         item.addEventListener('click', function() {
           overlay.remove();
           gymAttachExerciseToSession(sesion, e, listEl);
         });
-        suggestions.appendChild(item);
+        sugg.appendChild(item);
       });
-    };
+    }
     render('');
     search.addEventListener('input', function() { render(search.value); });
   });
 
-  var overlay = createElement('div', { class: 'gym-modal-overlay' }, [modal]);
-  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
-  document.body.appendChild(overlay);
+  var overlay = gymOpenOverlay(modal);
+  setTimeout(function() { search.focus(); }, 80);
 }
 
 function gymAttachExerciseToSession(sesion, ej, listEl) {
-  // Auto-tag: el ejercicio queda asociado al routine_type de la sesión actual.
-  // (Si ya tenía otro tipo, se sobreescribe — última rutina en que se usó manda.)
   var routine = sesion.routine_type;
   var tagPromise = (routine && ej.tipo !== routine)
     ? (function() { ej.tipo = routine; return dbPut('ejercicios', ej); })()
@@ -805,12 +860,8 @@ function gymAttachExerciseToSession(sesion, ej, listEl) {
 
   tagPromise.then(function() {
     var placeholder = {
-      sesion_id: sesion.id,
-      ejercicio_id: ej.id,
-      peso: 0,
-      reps: 0,
-      orden: 1,
-      status: GYM_STATUS.PENDING
+      sesion_id: sesion.id, ejercicio_id: ej.id,
+      peso: 0, reps: 0, orden: 1, status: GYM_STATUS.PENDING
     };
     return dbPut('sets', placeholder);
   }).then(function() {
@@ -818,61 +869,63 @@ function gymAttachExerciseToSession(sesion, ej, listEl) {
   });
 }
 
-// ─── Modal: Nuevo ejercicio ────────────────────────────────────────────────────
+// ─── Modal: nuevo ejercicio ────────────────────────────────────────────────────
 function gymShowNewExerciseModal(onCreated, defaultRoutine) {
-  var modal = createElement('div', { class: 'gym-modal' });
-  modal.appendChild(createElement('div', { class: 'gym-modal-title' }, ['Nuevo ejercicio']));
+  var modal = createElement('div', { class: 'g-modal' });
+  modal.appendChild(createElement('div', { class: 'g-modal-handle' }));
+  modal.appendChild(createElement('div', { class: 'g-modal-head' }, [
+    createElement('div', { class: 'g-modal-title' }, ['Crear ejercicio']),
+    gymBuildModalClose(function() { overlay.remove(); })
+  ]));
 
+  modal.appendChild(createElement('div', { class: 'g-modal-sub' }, ['Nombre']));
   var nameInput = createElement('input', {
-    class: 'gym-search-input',
-    type: 'text',
-    placeholder: 'Nombre del ejercicio'
+    class: 'g-modal-input', type: 'text', placeholder: 'Nombre del ejercicio'
   });
   modal.appendChild(nameInput);
 
-  modal.appendChild(createElement('div', {
-    style: 'font-size:13px;color:var(--t3);margin:4px 0 8px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;'
-  }, ['RUTINA (opcional)']));
-
+  modal.appendChild(createElement('div', { class: 'g-modal-sub' }, ['Rutina']));
   var typeInput = createElement('input', {
-    class: 'gym-search-input',
-    type: 'text',
-    placeholder: 'Ej. Upper, Push, Leg Day…',
-    autocomplete: 'off'
+    class: 'g-modal-input', type: 'text',
+    placeholder: 'Ej. Upper, Push, Leg Day…', autocomplete: 'off'
   });
   if (defaultRoutine) typeInput.value = defaultRoutine;
   modal.appendChild(typeInput);
 
-  // Autocomplete de rutinas existentes
-  var typeSugg = createElement('div', { class: 'gym-suggestions', style: 'max-height:120px;overflow-y:auto;' });
+  var typeSugg = createElement('div', { class: 'g-suggest' });
+  typeSugg.style.display = 'none';
   modal.appendChild(typeSugg);
+
   Promise.all([dbGetAll('sesiones'), dbGetAll('ejercicios')]).then(function(r) {
     var nameSet = {};
     r[0].forEach(function(s) { if (s.routine_type) nameSet[s.routine_type] = true; });
     r[1].forEach(function(e) { if (e.tipo) nameSet[e.tipo] = true; });
     var allNames = Object.keys(nameSet).sort();
-    var renderTypes = function(term) {
+    function render(term) {
       typeSugg.innerHTML = '';
-      var tKey = gymNormalizeKey(term);
-      var filtered = allNames.filter(function(n) { return !tKey || gymNormalizeKey(n).indexOf(tKey) >= 0; });
+      var t = (term || '').trim();
+      var tKey = gymNormalizeKey(t);
+      if (!t) { typeSugg.style.display = 'none'; return; }
+      var filtered = allNames.filter(function(n) { return gymNormalizeKey(n).indexOf(tKey) >= 0; });
+      if (filtered.length === 0) { typeSugg.style.display = 'none'; return; }
       filtered.slice(0, 5).forEach(function(n) {
-        var item = createElement('div', { class: 'gym-suggestion-item' }, [n]);
-        item.addEventListener('click', function() { typeInput.value = n; typeSugg.innerHTML = ''; });
+        var item = createElement('button', { class: 'g-suggest-row', type: 'button' }, [n]);
+        item.addEventListener('click', function() {
+          typeInput.value = n;
+          typeSugg.style.display = 'none';
+        });
         typeSugg.appendChild(item);
       });
-    };
-    renderTypes(typeInput.value);
-    typeInput.addEventListener('input', function() { renderTypes(typeInput.value); });
+      typeSugg.style.display = '';
+    }
+    typeInput.addEventListener('input', function() { render(typeInput.value); });
   });
 
-  modal.appendChild(createElement('div', {
-    style: 'font-size:13px;color:var(--t3);margin:12px 0 8px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;'
-  }, ['MÚSCULO PRIMARIO']));
-
+  modal.appendChild(createElement('div', { class: 'g-modal-sub' }, ['Músculos']));
   var picker = gymBuildMusclePicker({ initialSelected: [] });
   modal.appendChild(picker.container);
 
-  var createBtn = createElement('button', { class: 'gym-btn-primary' }, ['Crear']);
+  var createBtn = createElement('button', { class: 'g-btn-primary', type: 'button' }, ['Crear ejercicio']);
   createBtn.addEventListener('click', function() {
     var nombre = nameInput.value.trim();
     if (!nombre) { showToast('Nombre requerido'); return; }
@@ -889,64 +942,114 @@ function gymShowNewExerciseModal(onCreated, defaultRoutine) {
       overlay.remove();
       showToast('Ejercicio creado');
       if (onCreated) onCreated(record);
-    }).catch(function(err) {
+    }).catch(function() {
       showToast('Error: nombre duplicado');
     });
   });
   modal.appendChild(createBtn);
 
-  var cancelBtn = createElement('button', { class: 'gym-btn-secondary' }, ['Cancelar']);
-  cancelBtn.addEventListener('click', function() { overlay.remove(); });
-  modal.appendChild(cancelBtn);
-
-  var overlay = createElement('div', { class: 'gym-modal-overlay' }, [modal]);
-  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
-  document.body.appendChild(overlay);
-  setTimeout(function() { nameInput.focus(); }, 50);
+  var overlay = gymOpenOverlay(modal);
+  setTimeout(function() { nameInput.focus(); }, 80);
 }
 
 // ─── Finalizar sesión ──────────────────────────────────────────────────────────
 function gymConfirmFinalize(sesion, panel) {
-  gymConfirmAction('¿Finalizar sesión?', function() {
-    var now = Date.now();
-    sesion.finalizada = true;
-    sesion.duracion_ms = now - (sesion.timestamp_inicio || now);
-    // Limpiar sets pendientes con 0/0 (placeholders no usados)
-    dbGetAll('sets').then(function(all) {
-      var placeholders = all.filter(function(s) {
-        return s.sesion_id === sesion.id && s.peso === 0 && s.reps === 0 && s.status === GYM_STATUS.PENDING;
-      });
-      return Promise.all(placeholders.map(function(s) { return dbDelete('sets', s.id); }));
-    }).then(function() {
-      return dbPut('sesiones', sesion);
-    }).then(function() {
-      gymStopTimer();
-      showToast('Sesión guardada');
-      gymRenderEntrenar(panel);
+  // Calcular stats reales para el modal de confirmación
+  Promise.all([dbGetAll('sets'), dbGetAll('ejercicios')]).then(function(r) {
+    var allSets = r[0].filter(function(s) { return s.sesion_id === sesion.id; });
+    var visible = allSets.filter(function(s) {
+      return !(s.status === GYM_STATUS.PENDING && Number(s.peso) === 0 && Number(s.reps) === 0);
     });
+    var done = visible.filter(function(s) { return s.status === GYM_STATUS.DONE; }).length;
+    var pending = visible.filter(function(s) { return s.status === GYM_STATUS.PENDING; }).length;
+    var ejIds = {}; allSets.forEach(function(s) { ejIds[s.ejercicio_id] = true; });
+    var nEj = Object.keys(ejIds).length;
+    var dur = Date.now() - (sesion.timestamp_inicio || Date.now());
+    // Volumen total (kg→lbs)
+    var volKg = visible.reduce(function(sum, s) {
+      if (s.status === GYM_STATUS.DONE) return sum + (Number(s.peso) * Number(s.reps));
+      return sum;
+    }, 0);
+    var volLbs = Math.round(gymKgToLbs(volKg) || 0);
+
+    var modal = createElement('div', { class: 'g-modal' });
+    modal.appendChild(createElement('div', { class: 'g-modal-handle' }));
+    modal.appendChild(createElement('div', { class: 'g-modal-head' }, [
+      createElement('div', { class: 'g-modal-title' }, ['¿Finalizar sesión?']),
+      gymBuildModalClose(function() { overlay.remove(); })
+    ]));
+
+    var summary = createElement('div', { class: 'g-confirm-summary' }, [
+      buildConfirmRow('Duración', gymFormatDuration(dur)),
+      buildConfirmRow('Ejercicios', String(nEj)),
+      buildConfirmRow('Sets completados', done + ' / ' + visible.length),
+      buildConfirmRow('Volumen total', volLbs.toLocaleString('es-MX') + ' lbs')
+    ]);
+    modal.appendChild(summary);
+
+    if (pending > 0) {
+      modal.appendChild(createElement('div', { class: 'g-confirm-warn' }, [
+        pending + (pending === 1 ? ' set queda pendiente.' : ' sets quedan pendientes.') +
+        ' Se descartarán al finalizar.'
+      ]));
+    }
+
+    var doneBtn = createElement('button', { class: 'g-btn-primary', type: 'button' }, ['Finalizar y guardar']);
+    doneBtn.addEventListener('click', function() {
+      overlay.remove();
+      var now = Date.now();
+      sesion.finalizada = true;
+      sesion.duracion_ms = now - (sesion.timestamp_inicio || now);
+      // Limpiar placeholders 0/0 Pending
+      dbGetAll('sets').then(function(all) {
+        var placeholders = all.filter(function(s) {
+          return s.sesion_id === sesion.id
+            && Number(s.peso) === 0 && Number(s.reps) === 0
+            && s.status === GYM_STATUS.PENDING;
+        });
+        return Promise.all(placeholders.map(function(s) { return dbDelete('sets', s.id); }));
+      }).then(function() {
+        return dbPut('sesiones', sesion);
+      }).then(function() {
+        gymStopTimer();
+        showToast('Sesión guardada');
+        gymRenderEntrenar(panel);
+      });
+    });
+    var continueBtn = createElement('button', { class: 'g-btn-secondary', type: 'button' }, ['Continuar entrenando']);
+    continueBtn.addEventListener('click', function() { overlay.remove(); });
+    modal.appendChild(doneBtn);
+    modal.appendChild(continueBtn);
+
+    var overlay = gymOpenOverlay(modal);
   });
 }
 
+function buildConfirmRow(label, value) {
+  return createElement('div', { class: 'g-confirm-row' }, [
+    createElement('span', {}, [label]),
+    createElement('b', {}, [value])
+  ]);
+}
+
 function gymConfirmAction(msg, onConfirm) {
-  var modal = createElement('div', { class: 'gym-modal' });
-  modal.appendChild(createElement('div', { class: 'gym-modal-title' }, ['Confirmar']));
-  modal.appendChild(createElement('div', {
-    style: 'color:var(--t2);font-size:14px;margin-bottom:16px;line-height:1.5;'
-  }, [msg]));
-  var ok = createElement('button', { class: 'gym-btn-danger' }, ['Sí, continuar']);
-  var cancel = createElement('button', { class: 'gym-btn-secondary' }, ['Cancelar']);
+  var modal = createElement('div', { class: 'g-modal' });
+  modal.appendChild(createElement('div', { class: 'g-modal-handle' }));
+  modal.appendChild(createElement('div', { class: 'g-modal-head' }, [
+    createElement('div', { class: 'g-modal-title' }, ['Confirmar']),
+    gymBuildModalClose(function() { overlay.remove(); })
+  ]));
+  modal.appendChild(createElement('div', { class: 'g-modal-body' }, [msg]));
+  var ok = createElement('button', { class: 'g-btn-primary', type: 'button' }, ['Sí, continuar']);
+  var cancel = createElement('button', { class: 'g-btn-secondary', type: 'button' }, ['Cancelar']);
   ok.addEventListener('click', function() { overlay.remove(); onConfirm(); });
   cancel.addEventListener('click', function() { overlay.remove(); });
   modal.appendChild(ok);
   modal.appendChild(cancel);
-  var overlay = createElement('div', { class: 'gym-modal-overlay' }, [modal]);
-  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
-  document.body.appendChild(overlay);
+  var overlay = gymOpenOverlay(modal);
 }
 
-// ─── Muscle picker reutilizable ────────────────────────────────────────────────
-// opts.initialSelected: array de strings con músculos preseleccionados.
-// Returns { container, getSelected }. Inserta el container donde necesites.
+// ─── Muscle picker (reutilizable) ──────────────────────────────────────────────
 function gymBuildMusclePicker(opts) {
   opts = opts || {};
   var initial = (opts.initialSelected || []).filter(Boolean);
@@ -955,24 +1058,23 @@ function gymBuildMusclePicker(opts) {
 
   var wrap = createElement('div', {});
 
-  var chipsWrap = createElement('div', {
-    style: 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:4px;'
-  });
+  var chipsWrap = createElement('div', { class: 'g-muscle-chips' });
   wrap.appendChild(chipsWrap);
 
+  var searchWrap = createElement('div', { class: 'g-search-wrap', style: 'margin-top:8px;' });
+  var sIcon = ICON.search({ size: 17 }); sIcon.setAttribute('class', 'g-search-icon');
+  searchWrap.appendChild(sIcon);
   var muscleSearch = createElement('input', {
-    class: 'gym-search-input',
-    type: 'text',
-    placeholder: 'Buscar o crear músculo…',
-    autocomplete: 'off'
+    class: 'g-search', type: 'text',
+    placeholder: 'Buscar o crear músculo…', autocomplete: 'off'
   });
-  wrap.appendChild(muscleSearch);
+  searchWrap.appendChild(muscleSearch);
+  wrap.appendChild(searchWrap);
 
-  var muscleSugg = createElement('div', { class: 'gym-suggestions', style: 'max-height:220px;overflow-y:auto;' });
-  wrap.appendChild(muscleSugg);
+  var sugg = createElement('div', { class: 'g-suggest' });
+  wrap.appendChild(sugg);
 
   var allMuscles = GYM_MUSCLE_GROUPS.slice();
-  // Asegurar que los preseleccionados (incluso customs) estén en pool.
   initial.forEach(function(m) {
     if (!allMuscles.some(function(x) { return gymNormalizeKey(x) === gymNormalizeKey(m); })) {
       allMuscles.push(m);
@@ -982,10 +1084,9 @@ function gymBuildMusclePicker(opts) {
   function renderChips() {
     chipsWrap.innerHTML = '';
     Object.keys(selectedMuscles).forEach(function(m) {
-      var chip = createElement('button', {
-        type: 'button',
-        style: 'display:inline-flex;align-items:center;gap:6px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-border);border-radius:980px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;'
-      }, [m + '  ×']);
+      var chip = createElement('button', { type: 'button', class: 'g-muscle-chip-selected' }, [
+        m, ' ✕'
+      ]);
       chip.addEventListener('click', function() {
         delete selectedMuscles[m];
         renderChips();
@@ -996,7 +1097,7 @@ function gymBuildMusclePicker(opts) {
   }
 
   function renderSugg(term) {
-    muscleSugg.innerHTML = '';
+    sugg.innerHTML = '';
     var t = (term || '').trim();
     var tKey = gymNormalizeKey(t);
     var filtered = allMuscles.filter(function(m) {
@@ -1005,31 +1106,27 @@ function gymBuildMusclePicker(opts) {
       return gymNormalizeKey(m).indexOf(tKey) >= 0;
     });
 
-    if (!t && filtered.length === 0) {
-      muscleSugg.appendChild(createElement('div', {
-        style: 'padding:12px;color:var(--t3);font-size:13px;text-align:center;'
-      }, ['Escribe para buscar.']));
-      return;
-    }
+    if (!t && filtered.length === 0) return;
 
     filtered.slice(0, 12).forEach(function(m) {
-      var item = createElement('div', { class: 'gym-suggestion-item' }, [m]);
+      var item = createElement('button', { class: 'g-suggest-row', type: 'button' }, [
+        '+ ', m
+      ]);
       item.addEventListener('click', function() {
         selectedMuscles[m] = true;
         muscleSearch.value = '';
         renderChips();
         renderSugg('');
       });
-      muscleSugg.appendChild(item);
+      sugg.appendChild(item);
     });
 
     if (t) {
       var exists = allMuscles.some(function(m) { return gymNormalizeKey(m) === tKey; });
       if (!exists && !selectedMuscles[t]) {
-        var createItem = createElement('div', {
-          class: 'gym-suggestion-item',
-          style: 'color:var(--accent);font-weight:600;'
-        }, ['+ Crear "' + t + '"']);
+        var createItem = createElement('button', { class: 'g-suggest-row', type: 'button' }, [
+          createElement('span', { class: 'g-suggest-create' }, ['+ Crear "' + t + '"'])
+        ]);
         createItem.addEventListener('click', function() {
           selectedMuscles[t] = true;
           allMuscles.push(t);
@@ -1038,12 +1135,11 @@ function gymBuildMusclePicker(opts) {
           renderChips();
           renderSugg('');
         });
-        muscleSugg.appendChild(createItem);
+        sugg.appendChild(createItem);
       }
     }
   }
 
-  // Pool: base + descubiertos en DB (dedup accent/case-insensitive).
   dbGetAll('ejercicios').then(function(all) {
     var seen = {};
     allMuscles.forEach(function(m) { seen[gymNormalizeKey(m)] = true; });
@@ -1060,7 +1156,6 @@ function gymBuildMusclePicker(opts) {
 
   muscleSearch.addEventListener('input', function() { renderSugg(muscleSearch.value); });
   renderChips();
-  renderSugg('');
 
   return {
     container: wrap,
@@ -1068,24 +1163,20 @@ function gymBuildMusclePicker(opts) {
   };
 }
 
-// ─── Modal: editar músculos primarios de un ejercicio existente ─────────────────
+// ─── Modal: editar músculos ────────────────────────────────────────────────────
 function gymOpenEditMusclesModal(ej, onSaved) {
-  var modal = createElement('div', { class: 'gym-modal' });
-  modal.appendChild(createElement('div', { class: 'gym-modal-title' }, ['Editar músculos']));
-  modal.appendChild(createElement('div', {
-    style: 'color:var(--t2);font-size:14px;margin-bottom:12px;line-height:1.4;'
-  }, [ej.nombre]));
-
-  modal.appendChild(createElement('div', {
-    style: 'font-size:13px;color:var(--t3);margin:4px 0 8px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;'
-  }, ['MÚSCULO PRIMARIO']));
+  var modal = createElement('div', { class: 'g-modal' });
+  modal.appendChild(createElement('div', { class: 'g-modal-handle' }));
+  modal.appendChild(createElement('div', { class: 'g-modal-head' }, [
+    createElement('div', { class: 'g-modal-title' }, ['Editar músculos']),
+    gymBuildModalClose(function() { overlay.remove(); })
+  ]));
+  modal.appendChild(createElement('div', { class: 'g-modal-sub', style: 'margin-top:0;' }, [ej.nombre]));
 
   var picker = gymBuildMusclePicker({ initialSelected: gymParseMuscleArr(ej.musculo_primario) });
   modal.appendChild(picker.container);
 
-  var saveBtn = createElement('button', { class: 'gym-btn-primary' }, ['Guardar']);
-  var cancelBtn = createElement('button', { class: 'gym-btn-secondary' }, ['Cancelar']);
-
+  var saveBtn = createElement('button', { class: 'g-btn-primary', type: 'button' }, ['Guardar cambios']);
   saveBtn.addEventListener('click', function() {
     var muscles = picker.getSelected();
     if (muscles.length === 0) { showToast('Selecciona al menos un músculo'); return; }
@@ -1097,56 +1188,68 @@ function gymOpenEditMusclesModal(ej, onSaved) {
           overlay.remove();
           showToast('Músculos actualizados');
           if (onSaved) onSaved(ej);
-        }).catch(function() {
-          showToast('Error al guardar');
-        });
+        }).catch(function() { showToast('Error al guardar'); });
       }
     );
   });
-  cancelBtn.addEventListener('click', function() { overlay.remove(); });
-
   modal.appendChild(saveBtn);
+  var cancelBtn = createElement('button', { class: 'g-btn-secondary', type: 'button' }, ['Cancelar']);
+  cancelBtn.addEventListener('click', function() { overlay.remove(); });
   modal.appendChild(cancelBtn);
 
-  var overlay = createElement('div', { class: 'gym-modal-overlay' }, [modal]);
-  overlay.addEventListener('click', function(e) { if (e.target === overlay) overlay.remove(); });
+  var overlay = gymOpenOverlay(modal);
+}
+
+// ─── Modal helpers ─────────────────────────────────────────────────────────────
+function gymOpenOverlay(modalEl) {
+  var overlay = createElement('div', { class: 'g-modal-overlay' }, [modalEl]);
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) overlay.remove();
+  });
   document.body.appendChild(overlay);
+  return overlay;
+}
+
+function gymBuildModalClose(onClose) {
+  var btn = createElement('button', { class: 'g-modal-close', type: 'button' }, ['✕']);
+  btn.addEventListener('click', onClose);
+  return btn;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// TAB 2 — EJERCICIOS (Exercise Library)
+// TAB 2 — EJERCICIOS
 // ══════════════════════════════════════════════════════════════════════════════
 var _gymLibFilter = { type: null, search: '' };
 
 function gymRenderEjercicios(panel) {
   panel.innerHTML = '';
+  var wrap = createElement('div', { class: 'g-lib' });
 
-  var wrap = createElement('div', { style: 'padding: 12px 0 80px;' });
-
-  // Buscador
-  var searchWrap = createElement('div', { style: 'padding: 0 20px 10px;' });
+  // Search
+  var searchWrap = createElement('div', { class: 'g-search-wrap' });
+  var sIcon = ICON.search({ size: 17 }); sIcon.setAttribute('class', 'g-search-icon');
+  searchWrap.appendChild(sIcon);
   var search = createElement('input', {
-    class: 'gym-search-input',
-    type: 'text',
-    placeholder: 'Buscar ejercicio…'
+    class: 'g-search', type: 'text', placeholder: 'Buscar ejercicio…'
   });
   search.value = _gymLibFilter.search || '';
   searchWrap.appendChild(search);
   wrap.appendChild(searchWrap);
 
-  // Filter pills por rutina (dinámicas, descubiertas de los ejercicios + sesiones)
-  var pills = createElement('div', { class: 'gym-filter-pills' });
-  var makePill = function(label, value) {
-    var active = _gymLibFilter.type === value;
-    var p = createElement('button', { class: 'gym-filter-pill' + (active ? ' active' : '') }, [label]);
+  // Pills dinámicas
+  var pills = createElement('div', { class: 'g-pills' });
+  function makePill(label, value) {
+    var active = _gymLibFilter.type === value || (value === null && _gymLibFilter.type === null);
+    var p = createElement('button', { class: 'g-pill' + (active ? ' active' : ''), type: 'button' }, [label]);
     p.addEventListener('click', function() {
       _gymLibFilter.type = _gymLibFilter.type === value ? null : value;
       gymRenderEjercicios(panel);
     });
     return p;
-  };
+  }
   pills.appendChild(makePill('Todos', null));
   wrap.appendChild(pills);
+
   Promise.all([dbGetAll('ejercicios'), dbGetAll('sesiones')]).then(function(r) {
     var nameSet = {};
     r[0].forEach(function(e) { if (e.tipo) nameSet[e.tipo] = true; });
@@ -1154,18 +1257,16 @@ function gymRenderEjercicios(panel) {
     Object.keys(nameSet).sort().forEach(function(t) { pills.appendChild(makePill(t, t)); });
   });
 
-  // Lista agrupada
-  var listWrap = createElement('div', { class: 'gym-dir-list', id: 'gym-dir-list' });
+  // Lista
+  var listWrap = createElement('div', { id: 'gym-dir-list' });
   wrap.appendChild(listWrap);
 
-  // CTA añadir
-  var addWrap = createElement('div', { style: 'padding: 20px;' });
-  var addBtn = createElement('button', { class: 'gym-btn-primary' }, ['+ Crear ejercicio']);
+  // CTA
+  var addBtn = createElement('button', { class: 'g-add-cta', type: 'button' }, ['+ Crear ejercicio']);
   addBtn.addEventListener('click', function() {
     gymShowNewExerciseModal(function() { gymRenderEjercicios(panel); });
   });
-  addWrap.appendChild(addBtn);
-  wrap.appendChild(addWrap);
+  wrap.appendChild(addBtn);
 
   panel.appendChild(wrap);
 
@@ -1178,15 +1279,16 @@ function gymRenderEjercicios(panel) {
 
 function gymRenderLibraryItems(listEl, panel) {
   listEl.innerHTML = '';
-  dbGetAll('ejercicios').then(function(all) {
+  Promise.all([dbGetAll('ejercicios'), dbGetAll('sets'), dbGetAll('sesiones')]).then(function(r) {
+    var ejercicios = r[0], allSets = r[1], sesiones = r[2];
+    var sesMap = {}; sesiones.forEach(function(s) { sesMap[s.id] = s; });
     var termKey = gymNormalizeKey(_gymLibFilter.search || '');
-    var filtered = all.filter(function(e) {
+    var filtered = ejercicios.filter(function(e) {
       if (_gymLibFilter.type && e.tipo !== _gymLibFilter.type) return false;
       if (termKey && gymNormalizeKey(e.nombre).indexOf(termKey) < 0) return false;
       return true;
     });
 
-    // Agrupar por rutina (free-text, descubierto de los datos)
     var groups = {};
     filtered.forEach(function(e) {
       var t = e.tipo || 'Sin tipo';
@@ -1199,66 +1301,99 @@ function gymRenderLibraryItems(listEl, panel) {
       if (b === 'Sin tipo') return -1;
       return a.localeCompare(b);
     });
-    var hasAny = false;
+
+    if (keys.length === 0) {
+      listEl.appendChild(createElement('div', { class: 'g-empty-card', style: 'margin-top:24px;' }, [
+        'Sin ejercicios. Crea el primero abajo.'
+      ]));
+      return;
+    }
+
     keys.forEach(function(k) {
       var items = (groups[k] || []).sort(function(a, b) { return a.nombre.localeCompare(b.nombre); });
       if (items.length === 0) return;
-      hasAny = true;
-      var header = createElement('div', { class: 'gym-pr-muscle-header' }, [k + '  ·  ' + items.length]);
-      listEl.appendChild(header);
+      listEl.appendChild(createElement('div', { class: 'g-section-label' }, [k.toUpperCase()]));
+      var card = createElement('div', { class: 'g-list-card' });
 
       items.forEach(function(e) {
-        var muscles = gymParseMuscleArr(e.musculo_primario);
-        var item = createElement('div', { class: 'gym-dir-item' }, [
-          createElement('div', {}, [
-            createElement('div', { class: 'gym-dir-item-name' }, [e.nombre]),
-            createElement('div', { class: 'gym-dir-item-sub' }, [muscles.length > 0 ? muscles.join(' · ') : 'sin músculo'])
-          ]),
-          createElement('div', { style: 'color:var(--t3);font-size:18px;' }, ['›'])
-        ]);
-        item.addEventListener('click', function() { gymRenderEjercicioDetail(panel, e); });
-        listEl.appendChild(item);
-      });
-    });
+        var muscles = gymParseMuscleArr(e.musculo_primario).join(' · ') || 'sin músculo';
+        // Buscar PR del ejercicio (mejor set absoluto)
+        var setsEj = allSets.filter(function(s) {
+          return s.ejercicio_id === e.id
+            && s.status !== GYM_STATUS.PENDING
+            && isFinite(Number(s.peso)) && Number(s.peso) > 0
+            && isFinite(Number(s.reps)) && Number(s.reps) > 0;
+        });
+        var bestStr = '—';
+        if (setsEj.length > 0) {
+          var pr = setsEj.reduce(function(m, s) {
+            if (Number(s.peso) > Number(m.peso)) return s;
+            if (Number(s.peso) === Number(m.peso) && Number(s.reps) > Number(m.reps)) return s;
+            return m;
+          }, setsEj[0]);
+          var lbsNum = gymWeightLbsNum(pr.peso);
+          bestStr = (lbsNum != null ? lbsNum : '—') + ' × ' + pr.reps;
+        }
 
-    if (!hasAny) {
-      listEl.appendChild(createElement('div', {
-        style: 'padding:40px 20px;text-align:center;color:var(--t3);font-size:14px;'
-      }, ['Sin ejercicios. Crea el primero arriba.']));
-    }
+        var row = createElement('button', { class: 'g-list-row', type: 'button' }, [
+          createElement('div', {}, [
+            createElement('div', { class: 'g-list-name' }, [e.nombre]),
+            createElement('div', { class: 'g-list-sub' }, [muscles])
+          ]),
+          createElement('div', { class: 'g-list-right' }, [
+            createElement('span', { class: 'g-list-pr' }, [bestStr]),
+            createElement('span', { class: 'g-list-arrow' }, ['›'])
+          ])
+        ]);
+        row.addEventListener('click', function() { gymRenderEjercicioDetail(panel, e); });
+        card.appendChild(row);
+      });
+      listEl.appendChild(card);
+    });
   });
 }
 
 function gymRenderEjercicioDetail(panel, ej) {
   panel.innerHTML = '';
+  var wrap = createElement('div', { class: 'g-detail-screen' });
 
-  var header = createElement('div', { class: 'gym-dir-detail-header' });
-  var back = createElement('button', { class: 'gym-dir-back-btn' }, ['‹ Ejercicios']);
+  var back = createElement('button', { class: 'g-back-inline', type: 'button' }, ['Ejercicios']);
   back.addEventListener('click', function() { gymRenderEjercicios(panel); });
-  header.appendChild(back);
+  wrap.appendChild(back);
 
-  header.appendChild(createElement('div', { class: 'gym-dir-detail-title' }, [ej.nombre]));
+  wrap.appendChild(createElement('h2', { class: 'g-detail-title' }, [ej.nombre]));
   var muscles = gymParseMuscleArr(ej.musculo_primario);
-  header.appendChild(createElement('div', { class: 'gym-dir-detail-muscle' }, [(ej.tipo || 'Sin tipo') + ' · ' + (muscles.join(' · ') || 'sin músculo')]));
+  wrap.appendChild(createElement('div', { class: 'g-detail-sub' }, [
+    muscles.length > 0 ? muscles.join(' · ') : 'sin músculo'
+  ]));
 
-  var editBtn = createElement('button', {
-    class: 'gym-btn-secondary',
-    style: 'margin-top:10px;padding:8px 14px;font-size:13px;'
-  }, ['✏️ Editar músculos']);
+  // Info grid
+  var infoGrid = createElement('div', { class: 'g-info-grid' }, [
+    createElement('div', { class: 'g-info-item' }, [
+      createElement('div', { class: 'g-info-label' }, ['RUTINA']),
+      createElement('div', { class: 'g-info-value' }, [ej.tipo || 'Sin tipo'])
+    ]),
+    createElement('div', { class: 'g-info-item' }, [
+      createElement('div', { class: 'g-info-label' }, ['SESIONES']),
+      createElement('div', { class: 'g-info-value', id: 'gym-detail-ses-count' }, ['—'])
+    ])
+  ]);
+  wrap.appendChild(infoGrid);
+
+  var editBtn = createElement('button', { class: 'g-edit-muscles', type: 'button' }, ['✏️ Editar músculos']);
   editBtn.addEventListener('click', function() {
     gymOpenEditMusclesModal(ej, function(updated) {
       gymRenderEjercicioDetail(panel, updated);
     });
   });
-  header.appendChild(editBtn);
+  wrap.appendChild(editBtn);
 
-  panel.appendChild(header);
+  wrap.appendChild(createElement('div', { class: 'g-section-label', style: 'padding-left:20px;' }, ['HISTORIAL']));
 
-  // Historial: lista de sesiones en que aparece, de más reciente a más antiguo
-  var histWrap = createElement('div', { style: 'padding: 8px 20px 80px;' });
-  histWrap.appendChild(createElement('div', {
-    style: 'font-size:13px;color:var(--t3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;font-weight:600;'
-  }, ['HISTORIAL']));
+  var listWrap = createElement('div', { style: 'padding: 0 16px;' });
+  wrap.appendChild(listWrap);
+
+  panel.appendChild(wrap);
 
   Promise.all([dbGetAll('sets'), dbGetAll('sesiones')]).then(function(r) {
     var sets = r[0].filter(function(s) {
@@ -1270,67 +1405,73 @@ function gymRenderEjercicioDetail(panel, ej) {
     var sesiones = {};
     r[1].forEach(function(s) { sesiones[s.id] = s; });
 
-    if (sets.length === 0) {
-      histWrap.appendChild(createElement('div', {
-        style: 'padding:20px;color:var(--t3);font-size:14px;'
-      }, ['Sin registros aún para este ejercicio.']));
-      panel.appendChild(histWrap);
-      return;
-    }
-
-    // Agrupar sets por sesion
     var bySesion = {};
     sets.forEach(function(st) {
       if (!bySesion[st.sesion_id]) bySesion[st.sesion_id] = [];
       bySesion[st.sesion_id].push(st);
     });
 
+    var sesionCount = Object.keys(bySesion).length;
+    var ctEl = document.getElementById('gym-detail-ses-count');
+    if (ctEl) ctEl.textContent = String(sesionCount);
+
+    if (sets.length === 0) {
+      listWrap.appendChild(createElement('div', { class: 'g-empty-card' }, ['Sin registros aún para este ejercicio.']));
+      return;
+    }
+
     var rows = Object.keys(bySesion).map(function(sid) {
       var sesion = sesiones[sid];
       var arr = bySesion[sid];
-      var fecha = sesion ? sesion.fecha : null;
       var ts = sesion ? (sesion.timestamp_inicio || new Date(sesion.fecha || 0).getTime()) : 0;
-      // Best set: mayor peso × reps
-      arr.sort(function(a, b) { return (b.peso * b.reps) - (a.peso * a.reps); });
-      var best = arr[0];
-      return { fecha: fecha, ts: ts, count: arr.length, best: best };
+      var best = arr.slice().sort(function(a, b) {
+        if (Number(b.peso) !== Number(a.peso)) return Number(b.peso) - Number(a.peso);
+        return Number(b.reps) - Number(a.reps);
+      })[0];
+      return { fecha: sesion ? sesion.fecha : null, rt: sesion ? sesion.routine_type : null, ts: ts, count: arr.length, best: best };
     }).sort(function(a, b) { return b.ts - a.ts; });
 
-    rows.forEach(function(r) {
-      var item = createElement('div', { class: 'gym-detail-table-row' }, [
-        createElement('div', { style: 'flex:1;color:var(--t1);font-size:15px;font-weight:500;' }, [gymFormatDateShort(r.fecha)]),
-        createElement('div', { style: 'color:var(--t2);font-size:14px;' }, [r.count + '×' + r.best.reps + ' a ' + gymFormatWeight(r.best.peso)])
+    var card = createElement('div', { class: 'g-list-card' });
+    rows.forEach(function(row) {
+      var lbsNum = gymWeightLbsNum(row.best.peso);
+      var bestStr = row.count + ' × ' + row.best.reps + ' a ' + (lbsNum != null ? lbsNum : '—') + ' lbs';
+      var item = createElement('div', { class: 'g-list-row', style: 'cursor:default;' }, [
+        createElement('div', {}, [
+          createElement('div', { class: 'g-list-name' }, [gymFormatDateLong(row.fecha)]),
+          createElement('div', { class: 'g-list-sub' }, [row.rt || 'Sin rutina'])
+        ]),
+        createElement('span', { class: 'g-list-pr' }, [bestStr])
       ]);
-      histWrap.appendChild(item);
+      card.appendChild(item);
     });
-    panel.appendChild(histWrap);
+    listWrap.appendChild(card);
   });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// TAB 3 — PROGRESIÓN (Lista de ejercicios + detalle por ejercicio + Export/Import)
+// TAB 3 — PROGRESIÓN (Hero "Récord de la semana" + lista + detalle)
 // ══════════════════════════════════════════════════════════════════════════════
 function gymRenderProgresion(panel) {
   panel.innerHTML = '';
-  var wrap = createElement('div', { style: 'padding: 12px 0 80px;' });
+  var wrap = createElement('div', { class: 'g-prog' });
 
-  wrap.appendChild(createElement('div', {
-    style: 'font-size:13px;color:var(--t3);text-transform:uppercase;letter-spacing:0.5px;padding:0 20px 10px;font-weight:600;'
-  }, ['EJERCICIOS · TAP PARA VER PROGRESIÓN']));
+  // Slot para el hero (se rellena async)
+  var heroSlot = createElement('div', { id: 'gym-prog-hero-slot' });
+  wrap.appendChild(heroSlot);
 
-  var listWrap = createElement('div', {
-    style: 'padding: 0 20px;display:flex;flex-direction:column;gap:8px;'
-  });
+  wrap.appendChild(createElement('div', { class: 'g-section-label' }, ['EJERCICIOS · TAP PARA VER PROGRESIÓN']));
+  var listWrap = createElement('div', { id: 'gym-prog-list-with' });
   wrap.appendChild(listWrap);
 
-  // Export / Import al final
-  wrap.appendChild(createElement('div', {
-    style: 'height:1px;background:var(--sep);margin:28px 20px 20px;'
-  }));
-  var eiWrap = createElement('div', { style: 'padding:0 20px;display:flex;flex-direction:column;gap:12px;' });
-  var exportBtn = createElement('button', { class: 'gym-btn-secondary' }, ['📤 Exportar datos']);
+  var noHistSlot = createElement('div', { id: 'gym-prog-list-no' });
+  wrap.appendChild(noHistSlot);
+
+  // Export / Import
+  wrap.appendChild(createElement('div', { class: 'g-section-label' }, ['DATOS']));
+  var eiWrap = createElement('div', { class: 'g-export-row' });
+  var exportBtn = createElement('button', { class: 'g-secondary-btn', type: 'button' }, ['📤 Exportar']);
   exportBtn.addEventListener('click', function() { gymExportData(); });
-  var importBtn = createElement('button', { class: 'gym-btn-secondary' }, ['📥 Importar datos']);
+  var importBtn = createElement('button', { class: 'g-secondary-btn', type: 'button' }, ['📥 Importar']);
   importBtn.addEventListener('click', function() { gymImportData(panel); });
   eiWrap.appendChild(exportBtn);
   eiWrap.appendChild(importBtn);
@@ -1340,13 +1481,12 @@ function gymRenderProgresion(panel) {
 
   Promise.all([dbGetAll('ejercicios'), dbGetAll('sets'), dbGetAll('sesiones')]).then(function(r) {
     var ejercicios = r[0], sets = r[1], sesiones = r[2];
-    var sesMap = {};
-    sesiones.forEach(function(s) { sesMap[s.id] = s; });
+    var sesMap = {}; sesiones.forEach(function(s) { sesMap[s.id] = s; });
 
     if (ejercicios.length === 0) {
-      listWrap.appendChild(createElement('div', {
-        style: 'padding:24px;color:var(--t3);font-size:14px;text-align:center;'
-      }, ['Sin ejercicios. Crea uno desde la pestaña Ejercicios.']));
+      listWrap.appendChild(createElement('div', { class: 'g-empty-card' }, [
+        'Sin ejercicios. Crea uno desde la pestaña Ejercicios.'
+      ]));
       return;
     }
 
@@ -1355,6 +1495,37 @@ function gymRenderProgresion(panel) {
         && isFinite(Number(s.peso)) && Number(s.peso) > 0
         && isFinite(Number(s.reps)) && Number(s.reps) > 0;
     });
+
+    // Hero "Récord de la semana"
+    var weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    var weekSets = realSets.filter(function(s) {
+      var ses = sesMap[s.sesion_id];
+      var ts = ses ? (ses.timestamp_inicio || new Date(ses.fecha || 0).getTime()) : 0;
+      return ts >= weekAgo;
+    });
+    if (weekSets.length > 0) {
+      var weekBest = weekSets.reduce(function(m, s) {
+        if (Number(s.peso) > Number(m.peso)) return s;
+        if (Number(s.peso) === Number(m.peso) && Number(s.reps) > Number(m.reps)) return s;
+        return m;
+      }, weekSets[0]);
+      var ejBest = ejercicios.find(function(e) { return e.id === weekBest.ejercicio_id; });
+      if (ejBest) {
+        // Sparkline: peso máximo por sesión del ejercicio campeón en últimos 7d
+        var ejSets = realSets.filter(function(s) { return s.ejercicio_id === ejBest.id; });
+        var bySesEj = {};
+        ejSets.forEach(function(s) {
+          var ts = sesMap[s.sesion_id];
+          var t = ts ? (ts.timestamp_inicio || new Date(ts.fecha || 0).getTime()) : 0;
+          if (t < weekAgo) return;
+          if (!bySesEj[s.sesion_id]) bySesEj[s.sesion_id] = { ts: t, max: 0 };
+          if (Number(s.peso) > bySesEj[s.sesion_id].max) bySesEj[s.sesion_id].max = Number(s.peso);
+        });
+        var sparkRows = Object.keys(bySesEj).map(function(k) { return bySesEj[k]; })
+          .sort(function(a, b) { return a.ts - b.ts; });
+        heroSlot.appendChild(gymBuildProgHero(ejBest, weekBest, sparkRows, sesMap));
+      }
+    }
 
     var withData = [], noData = [];
     ejercicios.forEach(function(ej) {
@@ -1375,54 +1546,134 @@ function gymRenderProgresion(panel) {
       });
       withData.push({ ej: ej, pr: pr, lastTs: lastTs, sesionCount: Object.keys(sesIds).length });
     });
-
     withData.sort(function(a, b) { return b.lastTs - a.lastTs; });
-    withData.forEach(function(item) {
-      listWrap.appendChild(gymBuildProgRow(panel, item.ej, item.pr, item.sesionCount, false));
-    });
+
+    if (withData.length > 0) {
+      var card = createElement('div', { class: 'g-list-card' });
+      withData.forEach(function(item) {
+        card.appendChild(gymBuildProgRow(panel, item.ej, item.pr, item.sesionCount));
+      });
+      listWrap.appendChild(card);
+    } else {
+      listWrap.appendChild(createElement('div', { class: 'g-empty-card' }, ['Aún no hay ejercicios con historial.']));
+    }
 
     if (noData.length > 0) {
-      listWrap.appendChild(createElement('div', {
-        style: 'font-size:12px;color:var(--t3);text-transform:uppercase;letter-spacing:0.5px;margin:18px 0 4px;font-weight:600;'
-      }, ['SIN HISTORIAL']));
+      noHistSlot.appendChild(createElement('div', { class: 'g-section-label dim' }, ['SIN HISTORIAL']));
+      var dimCard = createElement('div', { class: 'g-list-card dim' });
       noData.sort(function(a, b) { return a.nombre.localeCompare(b.nombre); }).forEach(function(ej) {
-        listWrap.appendChild(gymBuildProgRow(panel, ej, null, 0, true));
+        dimCard.appendChild(gymBuildProgRow(panel, ej, null, 0));
       });
+      noHistSlot.appendChild(dimCard);
     }
   });
 }
 
-function gymBuildProgRow(panel, ej, pr, sesionCount, dim) {
+function gymBuildProgHero(ej, prSet, sparkRows, sesMap) {
+  var lbsNum = gymWeightLbsNum(prSet.peso);
+  var oneRM = Math.round((lbsNum != null ? lbsNum : 0) * (1 + Number(prSet.reps) / 30));
+
+  var hero = createElement('div', { class: 'g-prog-hero' });
+  hero.appendChild(createElement('div', { class: 'g-prog-hero-label' }, ['RÉCORD DE LA SEMANA']));
+  hero.appendChild(createElement('div', { class: 'g-prog-hero-name' }, [ej.nombre]));
+  hero.appendChild(createElement('div', { class: 'g-prog-hero-num' }, [
+    createElement('span', { class: 'g-prog-hero-big' }, [String(lbsNum != null ? lbsNum : '—')]),
+    createElement('span', { class: 'g-prog-hero-unit' }, ['lbs × ' + prSet.reps])
+  ]));
+  hero.appendChild(createElement('div', { class: 'g-prog-hero-sub' }, [
+    '1RM est. ' + oneRM + ' lbs · fórmula Epley'
+  ]));
+
+  // Sparkline SVG
+  if (sparkRows.length >= 2) {
+    var W = 280, H = 48;
+    var pesos = sparkRows.map(function(r) { return gymWeightLbsNum(r.max) || 0; });
+    var minY = Math.min.apply(null, pesos) - 2;
+    var maxY = Math.max.apply(null, pesos) + 2;
+    if (minY === maxY) { minY -= 1; maxY += 1; }
+    var ns = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('class', 'g-prog-spark');
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    svg.setAttribute('preserveAspectRatio', 'none');
+
+    var defs = document.createElementNS(ns, 'defs');
+    var gradId = 'hg-spark-' + Math.random().toString(36).slice(2, 8);
+    var grad = document.createElementNS(ns, 'linearGradient');
+    grad.setAttribute('id', gradId);
+    grad.setAttribute('x1', '0'); grad.setAttribute('y1', '0');
+    grad.setAttribute('x2', '0'); grad.setAttribute('y2', '1');
+    var st1 = document.createElementNS(ns, 'stop');
+    st1.setAttribute('offset', '0%'); st1.setAttribute('stop-color', '#FF9F0A'); st1.setAttribute('stop-opacity', '0.4');
+    var st2 = document.createElementNS(ns, 'stop');
+    st2.setAttribute('offset', '100%'); st2.setAttribute('stop-color', '#FF9F0A'); st2.setAttribute('stop-opacity', '0');
+    grad.appendChild(st1); grad.appendChild(st2);
+    defs.appendChild(grad);
+    svg.appendChild(defs);
+
+    var pts = pesos.map(function(p, i) {
+      var x = (i / (pesos.length - 1)) * W;
+      var y = H - ((p - minY) / (maxY - minY)) * H;
+      return { x: x, y: y };
+    });
+    var areaD = pts.map(function(p, i) { return (i === 0 ? 'M ' : 'L ') + p.x.toFixed(1) + ' ' + p.y.toFixed(1); }).join(' ')
+      + ' L ' + W + ' ' + H + ' L 0 ' + H + ' Z';
+    var lineD = pts.map(function(p, i) { return (i === 0 ? 'M ' : 'L ') + p.x.toFixed(1) + ' ' + p.y.toFixed(1); }).join(' ');
+
+    var area = document.createElementNS(ns, 'path');
+    area.setAttribute('d', areaD); area.setAttribute('fill', 'url(#' + gradId + ')');
+    svg.appendChild(area);
+    var line = document.createElementNS(ns, 'path');
+    line.setAttribute('d', lineD); line.setAttribute('fill', 'none');
+    line.setAttribute('stroke', '#FF9F0A'); line.setAttribute('stroke-width', '2');
+    line.setAttribute('stroke-linecap', 'round'); line.setAttribute('stroke-linejoin', 'round');
+    svg.appendChild(line);
+    hero.appendChild(svg);
+
+    hero.appendChild(createElement('div', { class: 'g-prog-hero-axis' }, [
+      createElement('span', {}, ['Hace 7 d']),
+      createElement('span', {}, ['Hoy'])
+    ]));
+  }
+
+  // Tap → detalle del ejercicio
+  hero.style.cursor = 'pointer';
+  hero.addEventListener('click', function() {
+    // Buscar el panel para llamar a render detalle
+    var panel = hero.closest('.tab-panel');
+    if (panel) gymRenderProgresionDetail(panel, ej);
+  });
+
+  return hero;
+}
+
+function gymBuildProgRow(panel, ej, pr, sesionCount) {
   var muscles = gymParseMuscleArr(ej.musculo_primario).join(' · ') || 'sin músculo';
   var subStr = pr
-    ? sesionCount + (sesionCount === 1 ? ' sesión · PR ' : ' sesiones · PR ') + gymFormatWeight(pr.peso) + ' × ' + pr.reps
-    : 'sin sesiones';
-  var card = createElement('div', {
-    style: 'background:var(--bg-card);border-radius:var(--radius-md);padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;cursor:pointer;' + (dim ? 'opacity:0.45;' : '')
-  });
-  var left = createElement('div', { style: 'flex:1;min-width:0;' }, [
-    createElement('div', { style: 'font-weight:600;font-size:15px;color:var(--t1);margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, [ej.nombre]),
-    createElement('div', { style: 'font-size:12px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, [muscles]),
-    createElement('div', { style: 'font-size:13px;color:var(--t2);margin-top:4px;' }, [subStr])
+    ? sesionCount + (sesionCount === 1 ? ' sesión · PR ' : ' sesiones · PR ') + (gymWeightLbsNum(pr.peso) || 0) + ' × ' + pr.reps
+    : muscles;
+  var row = createElement('button', { class: 'g-list-row', type: 'button' }, [
+    createElement('div', {}, [
+      createElement('div', { class: 'g-list-name' }, [ej.nombre]),
+      createElement('div', { class: 'g-list-sub' }, [subStr])
+    ]),
+    createElement('span', { class: 'g-list-arrow' }, ['›'])
   ]);
-  var arrow = createElement('div', { style: 'color:var(--t3);font-size:18px;' }, ['›']);
-  card.appendChild(left);
-  card.appendChild(arrow);
-  card.addEventListener('click', function() { gymRenderProgresionDetail(panel, ej); });
-  return card;
+  row.addEventListener('click', function() { gymRenderProgresionDetail(panel, ej); });
+  return row;
 }
 
 function gymRenderProgresionDetail(panel, ej) {
   panel.innerHTML = '';
-  var wrap = createElement('div', { style: 'padding: 8px 0 80px;' });
+  var wrap = createElement('div', { class: 'g-detail-screen' });
 
-  var back = createElement('button', { class: 'gym-dir-back-btn', style: 'margin: 4px 12px 8px;' }, ['‹ Progresión']);
+  var back = createElement('button', { class: 'g-back-inline', type: 'button' }, ['Progresión']);
   back.addEventListener('click', function() { gymRenderProgresion(panel); });
   wrap.appendChild(back);
 
-  wrap.appendChild(createElement('div', { class: 'gym-dir-detail-title', style: 'padding:0 20px;' }, [ej.nombre]));
+  wrap.appendChild(createElement('h2', { class: 'g-detail-title' }, [ej.nombre]));
   var muscles = gymParseMuscleArr(ej.musculo_primario);
-  wrap.appendChild(createElement('div', { class: 'gym-dir-detail-muscle', style: 'padding:2px 20px 16px;' }, [
+  wrap.appendChild(createElement('div', { class: 'g-detail-sub' }, [
     (ej.tipo || 'Sin tipo') + ' · ' + (muscles.join(' · ') || 'sin músculo')
   ]));
   panel.appendChild(wrap);
@@ -1438,42 +1689,34 @@ function gymRenderProgresionDetail(panel, ej) {
     r[1].forEach(function(s) { sesMap[s.id] = s; });
 
     if (sets.length === 0) {
-      wrap.appendChild(createElement('div', {
-        style: 'margin:8px 20px;padding:24px;color:var(--t3);font-size:14px;text-align:center;background:var(--bg-card);border-radius:var(--radius-md);'
-      }, ['Sin sesiones registradas para este ejercicio.']));
+      wrap.appendChild(createElement('div', { class: 'g-empty-card', style: 'margin: 0 16px;' }, [
+        'Sin sesiones registradas para este ejercicio.'
+      ]));
       return;
     }
 
-    // PR absoluto (mayor peso, en empate más reps)
+    // PR absoluto
     var prAbs = sets.reduce(function(m, s) {
       if (Number(s.peso) > Number(m.peso)) return s;
       if (Number(s.peso) === Number(m.peso) && Number(s.reps) > Number(m.reps)) return s;
       return m;
     }, sets[0]);
     var prAbsSesion = sesMap[prAbs.sesion_id];
+    var prLbs = gymWeightLbsNum(prAbs.peso) || 0;
+    var oneRM = Math.round(prLbs * (1 + Number(prAbs.reps) / 30));
 
-    // 1RM est máximo (Epley: peso × (1 + reps/30))
-    var oneRM = sets.reduce(function(b, s) {
-      var v = Number(s.peso) * (1 + Number(s.reps) / 30);
-      return v > b.value ? { value: v, set: s } : b;
-    }, { value: 0, set: sets[0] });
-
-    // PR card (acento sutil, no abrumador)
-    var prCard = createElement('div', {
-      style: 'margin: 0 20px 14px;padding:16px 18px;background:linear-gradient(135deg, var(--accent-dim), rgba(255,159,10,0.04));border:1px solid var(--accent-border);border-radius:var(--radius-md);'
-    });
-    prCard.appendChild(createElement('div', {
-      style: 'font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:6px;'
-    }, ['🏆 Personal Record']));
-    prCard.appendChild(createElement('div', {
-      style: 'font-size:26px;font-weight:700;color:var(--t1);font-variant-numeric:tabular-nums;line-height:1.1;'
-    }, [gymFormatWeight(prAbs.peso) + ' × ' + prAbs.reps]));
-    prCard.appendChild(createElement('div', {
-      style: 'font-size:12px;color:var(--t2);margin-top:4px;'
-    }, [prAbsSesion && prAbsSesion.fecha ? gymFormatDateLong(prAbsSesion.fecha) : 'fecha desconocida']));
-    prCard.appendChild(createElement('div', {
-      style: 'font-size:12px;color:var(--t3);margin-top:10px;border-top:1px solid rgba(255,255,255,0.06);padding-top:8px;'
-    }, ['1RM estimado: ' + gymFormatWeight(oneRM.value) + '  ·  fórmula Epley']));
+    // PR card
+    var prCard = createElement('div', { class: 'g-pr-card' });
+    var prLabel = createElement('div', { class: 'g-pr-card-label' }, ['🏆 PERSONAL RECORD']);
+    prCard.appendChild(prLabel);
+    prCard.appendChild(createElement('div', { class: 'g-pr-card-value' }, [
+      createElement('span', { class: 'g-pr-num' }, [String(prLbs)]),
+      createElement('span', { class: 'g-pr-unit' }, ['lbs × ' + prAbs.reps])
+    ]));
+    prCard.appendChild(createElement('div', { class: 'g-pr-card-meta' }, [
+      (prAbsSesion && prAbsSesion.fecha ? gymFormatDateLong(prAbsSesion.fecha) : 'fecha desconocida') +
+      ' · 1RM est. ' + oneRM + ' lbs · Epley'
+    ]));
     wrap.appendChild(prCard);
 
     // Agrupar por sesión
@@ -1495,9 +1738,9 @@ function gymRenderProgresionDetail(panel, ej) {
       }, null);
       var volumen = arr.reduce(function(sum, s) { return sum + (Number(s.peso) * Number(s.reps)); }, 0);
       return { sesion: sesion, ts: ts, sets: arr, maxPeso: maxPeso, bestSet: bestSet, volumen: volumen };
-    }).sort(function(a, b) { return a.ts - b.ts; }); // ascendente para PR-tracking
+    }).sort(function(a, b) { return a.ts - b.ts; });
 
-    // Marcar sets que fueron PR en el momento
+    // Marcar PRs en running max
     var runningMax = 0;
     sessionRows.forEach(function(row) {
       row.sets.forEach(function(s) {
@@ -1510,37 +1753,32 @@ function gymRenderProgresionDetail(panel, ej) {
     var last10Asc = sessionRows.slice(-10);
     var last10Desc = last10Asc.slice().reverse();
 
-    // Gráfica SVG
+    // Chart
     wrap.appendChild(gymBuildSvgChart(last10Asc));
 
-    // Lista
-    wrap.appendChild(createElement('div', {
-      style: 'font-size:13px;color:var(--t3);text-transform:uppercase;letter-spacing:0.5px;padding:18px 20px 8px;font-weight:600;'
-    }, ['ÚLTIMAS ' + last10Desc.length + (last10Desc.length === 1 ? ' SESIÓN' : ' SESIONES')]));
-
-    var listWrap = createElement('div', { style: 'padding:0 20px;display:flex;flex-direction:column;gap:8px;' });
+    // Lista de sesiones
+    wrap.appendChild(createElement('div', { class: 'g-section-label', style: 'padding-left:20px;' }, [
+      'ÚLTIMAS ' + last10Desc.length + (last10Desc.length === 1 ? ' SESIÓN' : ' SESIONES')
+    ]));
+    var listWrap = createElement('div', { style: 'padding: 0 16px;' });
     last10Desc.forEach(function(row) { listWrap.appendChild(gymBuildSessionDetails(row)); });
     wrap.appendChild(listWrap);
   });
 }
 
 function gymBuildSvgChart(rows) {
-  var card = createElement('div', {
-    style: 'margin:6px 20px 0;padding:14px;background:var(--bg-card);border-radius:var(--radius-md);'
-  });
-  card.appendChild(createElement('div', {
-    style: 'font-size:12px;color:var(--t3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;font-weight:600;'
-  }, ['PESO MÁX · ÚLTIMAS ' + rows.length + (rows.length === 1 ? ' SESIÓN' : ' SESIONES')]));
+  var card = createElement('div', { class: 'g-chart-card' });
+  card.appendChild(createElement('div', { class: 'g-section-label', style: 'padding:0 0 10px;' }, [
+    'PESO MÁX · ÚLTIMAS ' + rows.length + (rows.length === 1 ? ' SESIÓN' : ' SESIONES')
+  ]));
 
   if (rows.length === 0) {
-    card.appendChild(createElement('div', {
-      style: 'color:var(--t3);font-size:13px;padding:20px 0;text-align:center;'
-    }, ['Sin datos.']));
+    card.appendChild(createElement('div', { style: 'color:var(--t3);font-size:13px;padding:20px 0;text-align:center;' }, ['Sin datos.']));
     return card;
   }
 
   var W = 320, H = 120, padX = 14, padY = 14;
-  var pesos = rows.map(function(r) { return r.maxPeso; });
+  var pesos = rows.map(function(r) { return gymWeightLbsNum(r.maxPeso) || 0; });
   var minP = Math.min.apply(null, pesos);
   var maxP = Math.max.apply(null, pesos);
   if (minP === maxP) { minP = Math.max(0, minP - 1); maxP = maxP + 1; }
@@ -1551,7 +1789,6 @@ function gymBuildSvgChart(rows) {
   var svg = document.createElementNS(ns, 'svg');
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
   svg.setAttribute('preserveAspectRatio', 'none');
-  svg.setAttribute('style', 'width:100%;height:120px;display:block;');
 
   // Grid
   [0, 0.5, 1].forEach(function(t) {
@@ -1560,13 +1797,15 @@ function gymBuildSvgChart(rows) {
     line.setAttribute('x1', padX); line.setAttribute('x2', W - padX);
     line.setAttribute('y1', y); line.setAttribute('y2', y);
     line.setAttribute('stroke', 'rgba(255,255,255,0.06)');
+    line.setAttribute('stroke-dasharray', '2 4');
     line.setAttribute('stroke-width', '1');
     svg.appendChild(line);
   });
 
   var pts = rows.map(function(r, i) {
     var x = rows.length === 1 ? W / 2 : padX + i * step;
-    var norm = range === 0 ? 0.5 : (r.maxPeso - minP) / range;
+    var p = gymWeightLbsNum(r.maxPeso) || 0;
+    var norm = range === 0 ? 0.5 : (p - minP) / range;
     var y = padY + (1 - norm) * (H - 2 * padY);
     return { x: x, y: y, row: r };
   });
@@ -1574,10 +1813,10 @@ function gymBuildSvgChart(rows) {
   if (pts.length > 1) {
     var areaD = 'M ' + pts[0].x + ' ' + (H - padY) +
       ' L ' + pts.map(function(p) { return p.x + ' ' + p.y; }).join(' L ') +
-      ' L ' + pts[pts.length-1].x + ' ' + (H - padY) + ' Z';
+      ' L ' + pts[pts.length - 1].x + ' ' + (H - padY) + ' Z';
     var area = document.createElementNS(ns, 'path');
     area.setAttribute('d', areaD);
-    area.setAttribute('fill', 'rgba(255,159,10,0.12)');
+    area.setAttribute('fill', 'rgba(255,159,10,0.18)');
     svg.appendChild(area);
 
     var lineD = 'M ' + pts.map(function(p) { return p.x + ' ' + p.y; }).join(' L ');
@@ -1594,74 +1833,66 @@ function gymBuildSvgChart(rows) {
   pts.forEach(function(p) {
     var c = document.createElementNS(ns, 'circle');
     c.setAttribute('cx', p.x); c.setAttribute('cy', p.y);
-    c.setAttribute('r', 3.5);
+    c.setAttribute('r', 3);
     c.setAttribute('fill', '#FF9F0A');
     var title = document.createElementNS(ns, 'title');
-    title.textContent = gymFormatDateShort(p.row.sesion ? p.row.sesion.fecha : null) + ': ' + gymFormatWeight(p.row.maxPeso);
+    title.textContent = gymFormatDateShort(p.row.sesion ? p.row.sesion.fecha : null) +
+                        ': ' + (gymWeightLbsNum(p.row.maxPeso) || 0) + ' lbs';
     c.appendChild(title);
     svg.appendChild(c);
   });
 
   card.appendChild(svg);
-
-  card.appendChild(createElement('div', {
-    style: 'display:flex;justify-content:space-between;font-size:11px;color:var(--t3);margin-top:8px;font-variant-numeric:tabular-nums;'
-  }, [
+  card.appendChild(createElement('div', { class: 'g-chart-axis' }, [
     createElement('span', {}, [gymFormatDateShort(rows[0].sesion ? rows[0].sesion.fecha : null)]),
-    createElement('span', {}, ['min ' + gymFormatWeight(minP) + '  ·  máx ' + gymFormatWeight(maxP)]),
-    createElement('span', {}, [gymFormatDateShort(rows[rows.length-1].sesion ? rows[rows.length-1].sesion.fecha : null)])
+    createElement('span', { class: 'g-chart-axis-mid' }, ['min ' + Math.round(minP) + ' / máx ' + Math.round(maxP) + ' lbs']),
+    createElement('span', {}, [gymFormatDateShort(rows[rows.length - 1].sesion ? rows[rows.length - 1].sesion.fecha : null)])
   ]));
   return card;
 }
 
 function gymBuildSessionDetails(row) {
-  var details = createElement('details', {
-    style: 'background:var(--bg-card);border-radius:var(--radius-md);padding:10px 14px;'
-  });
-  var summary = createElement('summary', {
-    style: 'cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:10px;'
-  });
-  var routine = row.sesion && row.sesion.routine_type ? ' · ' + row.sesion.routine_type : '';
-  summary.appendChild(createElement('div', { style: 'flex:1;min-width:0;' }, [
-    createElement('div', { style: 'font-weight:600;font-size:14px;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' }, [
-      gymFormatDateLong(row.sesion ? row.sesion.fecha : null) + routine
+  var details = createElement('details', { class: 'g-session-row' });
+  var summary = createElement('summary', { class: 'g-session-summary' });
+  var routine = row.sesion && row.sesion.routine_type ? row.sesion.routine_type : '';
+  var bestLbs = gymWeightLbsNum(row.bestSet.peso) || 0;
+  var volLbs = Math.round(gymKgToLbs(row.volumen) || 0);
+  summary.appendChild(createElement('div', {}, [
+    createElement('div', { class: 'g-list-name' }, [
+      gymFormatDateLong(row.sesion ? row.sesion.fecha : null),
+      routine ? ' · ' : '',
+      routine ? createElement('span', { style: 'color:var(--accent);' }, [routine]) : ''
     ]),
-    createElement('div', { style: 'font-size:12px;color:var(--t2);margin-top:2px;' }, [
-      'Mejor: ' + gymFormatWeight(row.bestSet.peso) + ' × ' + row.bestSet.reps + '  ·  Vol: ' + gymFormatWeight(row.volumen)
+    createElement('div', { class: 'g-list-sub' }, [
+      'Mejor: ' + bestLbs + ' × ' + row.bestSet.reps + ' · Vol: ' + volLbs.toLocaleString('es-MX')
     ])
   ]));
-  summary.appendChild(createElement('span', { style: 'color:var(--t3);font-size:12px;' }, ['▾']));
+  summary.appendChild(createElement('span', { class: 'g-session-chev' }, ['›']));
   details.appendChild(summary);
 
-  var body = createElement('div', {
-    style: 'margin-top:10px;border-top:1px solid var(--sep);padding-top:10px;display:flex;flex-direction:column;gap:6px;'
-  });
+  var setsBody = createElement('div', { class: 'g-session-sets' });
   row.sets.forEach(function(s, i) {
-    var srow = createElement('div', {
-      style: 'display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;'
-    });
-    srow.appendChild(createElement('span', { style: 'color:var(--t3);min-width:50px;' }, ['Set #' + (i + 1)]));
-    srow.appendChild(createElement('span', { style: 'color:var(--t1);font-weight:500;flex:1;' }, [
-      gymFormatWeight(s.peso) + ' × ' + s.reps
+    var lbsNum = gymWeightLbsNum(s.peso);
+    var srow = createElement('div', { class: 'g-session-set-row' });
+    srow.appendChild(createElement('span', { class: 'g-set-n' }, ['Set ' + (i + 1)]));
+    srow.appendChild(createElement('span', {}, [
+      createElement('b', {}, [String(lbsNum != null ? lbsNum : '—')]),
+      ' lbs × ',
+      createElement('b', {}, [String(s.reps)])
     ]));
     if (s._isPR) {
-      srow.appendChild(createElement('span', {
-        style: 'background:var(--accent-dim);color:var(--accent);font-size:10px;font-weight:700;padding:2px 8px;border-radius:980px;border:1px solid var(--accent-border);text-transform:uppercase;letter-spacing:0.4px;'
-      }, ['🏆 PR']));
+      srow.appendChild(createElement('span', { class: 'g-pr-badge' }, ['🏆 PR']));
+    } else if (s.status === GYM_STATUS.SKIPPED) {
+      srow.appendChild(createElement('span', { class: 'g-skip-badge' }, ['skipped']));
     }
-    if (s.status === GYM_STATUS.SKIPPED) {
-      srow.appendChild(createElement('span', {
-        style: 'color:var(--red);font-size:10px;text-transform:uppercase;letter-spacing:0.4px;'
-      }, ['skipped']));
-    }
-    body.appendChild(srow);
+    setsBody.appendChild(srow);
   });
-  details.appendChild(body);
+  details.appendChild(setsBody);
   return details;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// EXPORT / IMPORT (preservado del módulo anterior)
+// EXPORT / IMPORT
 // ══════════════════════════════════════════════════════════════════════════════
 function gymExportData() {
   Promise.all([
@@ -1670,18 +1901,18 @@ function gymExportData() {
     dbGetAll('sets')
   ]).then(function(results) {
     var payload = {
-      version:    2,
+      version: 2,
       exportDate: new Date().toISOString(),
       sesiones:   results[0],
       ejercicios: results[1],
       sets:       results[2]
     };
-    var json  = JSON.stringify(payload, null, 2);
-    var blob  = new Blob([json], { type: 'application/json' });
-    var url   = URL.createObjectURL(blob);
+    var json = JSON.stringify(payload, null, 2);
+    var blob = new Blob([json], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
     var today = new Date().toISOString().slice(0, 10);
-    var a     = document.createElement('a');
-    a.href     = url;
+    var a = document.createElement('a');
+    a.href = url;
     a.download = 'habitos-gym-backup-' + today + '.json';
     document.body.appendChild(a);
     a.click();
@@ -1693,7 +1924,7 @@ function gymExportData() {
 
 function gymImportData(panel) {
   var fileInput = document.createElement('input');
-  fileInput.type   = 'file';
+  fileInput.type = 'file';
   fileInput.accept = '.json';
   fileInput.style.display = 'none';
   document.body.appendChild(fileInput);
@@ -1706,48 +1937,38 @@ function gymImportData(panel) {
     var reader = new FileReader();
     reader.onload = function(e) {
       var data;
-      try { data = JSON.parse(e.target.result); } catch(err) {
+      try { data = JSON.parse(e.target.result); } catch(err) { showToast('Archivo no válido'); return; }
+      if (!data || data.version == null
+          || !Array.isArray(data.sesiones)
+          || !Array.isArray(data.ejercicios)
+          || !Array.isArray(data.sets)) {
         showToast('Archivo no válido');
         return;
       }
+      var nSes = data.sesiones.length, nEj = data.ejercicios.length, nSet = data.sets.length;
 
-      if (!data || data.version == null ||
-          !Array.isArray(data.sesiones) ||
-          !Array.isArray(data.ejercicios) ||
-          !Array.isArray(data.sets)) {
-        showToast('Archivo no válido');
-        return;
-      }
-
-      var nSes = data.sesiones.length;
-      var nEj  = data.ejercicios.length;
-      var nSet = data.sets.length;
-
-      var modal   = createElement('div', { class: 'gym-modal' });
-      modal.appendChild(createElement('div', { class: 'gym-modal-title' }, ['Importar backup']));
-      modal.appendChild(createElement('div', {
-        style: 'color:var(--t2);font-size:14px;margin-bottom:16px;line-height:1.5;'
-      }, [
+      var modal = createElement('div', { class: 'g-modal' });
+      modal.appendChild(createElement('div', { class: 'g-modal-handle' }));
+      modal.appendChild(createElement('div', { class: 'g-modal-head' }, [
+        createElement('div', { class: 'g-modal-title' }, ['Importar backup']),
+        gymBuildModalClose(function() { overlay.remove(); })
+      ]));
+      modal.appendChild(createElement('div', { class: 'g-modal-body' }, [
         'El backup contiene ' + nSes + ' sesiones, ' + nEj + ' ejercicios y ' + nSet + ' sets. ' +
-        '¿Importar? Esto fusionará los datos con los existentes. ' +
-        'Los registros duplicados (mismo ID) se sobrescriben.'
+        '¿Importar? Los registros con el mismo ID se sobrescribirán.'
       ]));
 
-      var confirmBtn = createElement('button', { class: 'gym-btn-primary' }, ['Importar']);
-      var cancelBtn  = createElement('button', { class: 'gym-btn-secondary' }, ['Cancelar']);
-
+      var confirmBtn = createElement('button', { class: 'g-btn-primary', type: 'button' }, ['Importar']);
       confirmBtn.addEventListener('click', function() {
         overlay.remove();
         openDB().then(function(db) {
           var tx = db.transaction(['sesiones', 'ejercicios', 'sets'], 'readwrite');
-          var sStore   = tx.objectStore('sesiones');
-          var eStore   = tx.objectStore('ejercicios');
+          var sStore = tx.objectStore('sesiones');
+          var eStore = tx.objectStore('ejercicios');
           var setStore = tx.objectStore('sets');
-
-          data.sesiones.forEach(function(r)   { sStore.put(r); });
+          data.sesiones.forEach(function(r) { sStore.put(r); });
           data.ejercicios.forEach(function(r) { eStore.put(r); });
-          data.sets.forEach(function(r)       { setStore.put(r); });
-
+          data.sets.forEach(function(r) { setStore.put(r); });
           tx.oncomplete = function() {
             showToast(nSes + ' sesiones, ' + nEj + ' ejercicios, ' + nSet + ' sets importados.');
             gymRenderProgresion(panel);
@@ -1755,13 +1976,11 @@ function gymImportData(panel) {
           tx.onerror = function() { showToast('Error al importar'); };
         });
       });
-
+      var cancelBtn = createElement('button', { class: 'g-btn-secondary', type: 'button' }, ['Cancelar']);
       cancelBtn.addEventListener('click', function() { overlay.remove(); });
       modal.appendChild(confirmBtn);
       modal.appendChild(cancelBtn);
-      var overlay = createElement('div', { class: 'gym-modal-overlay' }, [modal]);
-      overlay.addEventListener('click', function(ev) { if (ev.target === overlay) overlay.remove(); });
-      document.body.appendChild(overlay);
+      var overlay = gymOpenOverlay(modal);
     };
     reader.readAsText(file);
   });

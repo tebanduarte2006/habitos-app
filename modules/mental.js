@@ -252,6 +252,16 @@ function mentalShowHome(container) {
     mentalShowConfig(container);
   });
 
+  var bigTitle = document.createElement('h1');
+  bigTitle.className = 'g-screen-title';
+  bigTitle.textContent = 'Mental';
+  container.appendChild(bigTitle);
+
+  var subtitle = document.createElement('div');
+  subtitle.style.cssText = 'font-size:14px;color:var(--t2);padding:0 20px 12px;margin-top:-12px;';
+  subtitle.textContent = 'Toolkit de neurofisiología';
+  container.appendChild(subtitle);
+
   var grid = document.createElement('div');
   grid.className = 'mental-sections-grid';
 
@@ -278,6 +288,18 @@ function mentalShowSection(container, section) {
   container.innerHTML = '';
 
   mentalSetHeader(section.label, function() { mentalShowHome(container); });
+
+  var bigTitle = document.createElement('h1');
+  bigTitle.className = 'g-screen-title';
+  bigTitle.textContent = section.label;
+  container.appendChild(bigTitle);
+
+  if (section.desc) {
+    var sub = document.createElement('div');
+    sub.style.cssText = 'font-size:14px;color:var(--t2);padding:0 20px 12px;margin-top:-12px;';
+    sub.textContent = section.desc;
+    container.appendChild(sub);
+  }
 
   var grid = document.createElement('div');
   grid.className = 'mental-cards-grid';

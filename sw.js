@@ -1,6 +1,5 @@
 // Service Worker — Hábitos App
-// La version usa timestamp para no requerir cambio manual en cada deploy
-var CACHE = "habitos-" + "20260428-1";
+var CACHE = "habitos-" + "20260428-2";
 var ASSETS = [
   "./",
   "./index.html",
@@ -8,8 +7,9 @@ var ASSETS = [
   "./app.js",
   "./db.js",
   "./manifest.json",
+  "./renderers/icons.js",
+  "./renderers/home.js",
   "./renderers/gym.js",
-  "./modules/gym.json",
   "./modules/mental.js"
 ];
 
