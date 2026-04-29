@@ -275,8 +275,22 @@ function gymRenderStartScreen(panel, sesiones) {
     })
     .slice(0, 3);
 
+  var totalFinalizadas = sesiones.filter(function(s) { return s.finalizada === true; }).length;
   if (finalizadas.length > 0) {
-    wrap.appendChild(createElement('div', { class: 'g-section-label', style: 'padding-left:4px;padding-top:0;' }, ['ÚLTIMAS SESIONES']));
+    var headRow = createElement('div', {
+      style: 'display:flex;align-items:center;justify-content:space-between;padding:0 4px;'
+    }, [
+      createElement('div', { class: 'g-section-label', style: 'padding:0;' }, ['ÚLTIMAS SESIONES'])
+    ]);
+    if (totalFinalizadas > 0) {
+      var verTodas = createElement('button', {
+        type: 'button',
+        style: 'background:none;border:0;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer;padding:4px 0;'
+      }, ['Ver todas →']);
+      verTodas.addEventListener('click', function() { gymRenderAllSessions(panel); });
+      headRow.appendChild(verTodas);
+    }
+    wrap.appendChild(headRow);
     var list = createElement('div', { class: 'g-recent-list' });
     dbGetAll('sets').then(function(all) {
       finalizadas.forEach(function(s) {
@@ -284,7 +298,7 @@ function gymRenderStartScreen(panel, sesiones) {
           return st.sesion_id === s.id
             && !(st.status === GYM_STATUS.PENDING && Number(st.peso) === 0 && Number(st.reps) === 0);
         }).length;
-        var card = createElement('div', { class: 'g-recent-card' }, [
+        var card = createElement('div', { class: 'g-recent-card', style: 'cursor:pointer;' }, [
           createElement('div', {}, [
             createElement('div', { class: 'g-recent-name' }, [s.nombre || 'Workout']),
             createElement('div', { class: 'g-recent-sub' }, [
@@ -295,6 +309,7 @@ function gymRenderStartScreen(panel, sesiones) {
             s.duracion_ms ? gymFormatDuration(s.duracion_ms) : ''
           ])
         ]);
+        card.addEventListener('click', function() { gymRenderSessionDetail(panel, s.id); });
         list.appendChild(card);
       });
     });
@@ -310,6 +325,268 @@ function gymRenderStartScreen(panel, sesiones) {
   wrap.appendChild(startBtn);
 
   panel.appendChild(wrap);
+}
+
+// ─── Vista detalle de sesión + lista completa + edit/delete ────────────────────
+
+function gymRenderAllSessions(panel) {
+  panel.innerHTML = '';
+  var wrap = createElement('div', { class: 'g-start' });
+
+  var back = createElement('button', { class: 'g-back-inline', type: 'button' }, ['Entrenar']);
+  back.addEventListener('click', function() { gymRenderEntrenar(panel); });
+  wrap.appendChild(back);
+
+  wrap.appendChild(createElement('h1', { class: 'g-screen-title' }, ['Todas las sesiones']));
+
+  var listWrap = createElement('div', { class: 'g-recent-list', style: 'margin-top:14px;' });
+  wrap.appendChild(listWrap);
+  panel.appendChild(wrap);
+
+  Promise.all([dbGetAll('sesiones'), dbGetAll('sets')]).then(function(r) {
+    var sesiones = r[0].filter(function(s) { return s.finalizada === true; })
+      .sort(function(a, b) {
+        return (b.timestamp_inicio || new Date(b.fecha).getTime()) -
+               (a.timestamp_inicio || new Date(a.fecha).getTime());
+      });
+    var allSets = r[1];
+
+    if (sesiones.length === 0) {
+      listWrap.appendChild(createElement('div', { class: 'g-empty-card' }, ['No hay sesiones finalizadas.']));
+      return;
+    }
+
+    sesiones.forEach(function(s) {
+      var setsCount = allSets.filter(function(st) {
+        return st.sesion_id === s.id
+          && !(st.status === GYM_STATUS.PENDING && Number(st.peso) === 0 && Number(st.reps) === 0);
+      }).length;
+      var card = createElement('div', { class: 'g-recent-card', style: 'cursor:pointer;' }, [
+        createElement('div', {}, [
+          createElement('div', { class: 'g-recent-name' }, [s.nombre || 'Workout']),
+          createElement('div', { class: 'g-recent-sub' }, [
+            gymFormatDateLong(s.fecha) + ' · ' + setsCount + (setsCount === 1 ? ' set' : ' sets')
+          ])
+        ]),
+        createElement('div', { class: 'g-recent-meta' }, [
+          s.duracion_ms ? gymFormatDuration(s.duracion_ms) : ''
+        ])
+      ]);
+      card.addEventListener('click', function() { gymRenderSessionDetail(panel, s.id, true); });
+      listWrap.appendChild(card);
+    });
+  });
+}
+
+function gymRenderSessionDetail(panel, sesionId, fromAll) {
+  panel.innerHTML = '';
+  var wrap = createElement('div', { class: 'g-start' });
+
+  var back = createElement('button', { class: 'g-back-inline', type: 'button' }, [
+    fromAll ? 'Todas las sesiones' : 'Entrenar'
+  ]);
+  back.addEventListener('click', function() {
+    if (fromAll) gymRenderAllSessions(panel);
+    else gymRenderEntrenar(panel);
+  });
+  wrap.appendChild(back);
+  panel.appendChild(wrap);
+
+  Promise.all([dbGetAll('sesiones'), dbGetAll('sets'), dbGetAll('ejercicios')]).then(function(r) {
+    var sesion = r[0].find(function(x) { return x.id === sesionId; });
+    if (!sesion) { gymRenderEntrenar(panel); return; }
+    var sets = r[1].filter(function(s) { return s.sesion_id === sesionId; });
+    var ejercicios = r[2];
+    var ejMap = {}; ejercicios.forEach(function(e) { ejMap[e.id] = e; });
+
+    var visible = sets.filter(function(s) {
+      return !(s.status === GYM_STATUS.PENDING && Number(s.peso) === 0 && Number(s.reps) === 0);
+    });
+    var done = visible.filter(function(s) { return s.status === GYM_STATUS.DONE; }).length;
+    var ejIds = {}; visible.forEach(function(s) { ejIds[s.ejercicio_id] = true; });
+    var nEj = Object.keys(ejIds).length;
+    var volKg = visible.reduce(function(sum, s) {
+      if (s.status === GYM_STATUS.DONE) return sum + (Number(s.peso) * Number(s.reps));
+      return sum;
+    }, 0);
+    var volLbs = Math.round(gymKgToLbs(volKg) || 0);
+
+    // Header
+    var header = createElement('div', { class: 'g-session-card', style: 'margin-top:8px;' }, [
+      createElement('div', { class: 'g-session-rt' }, [(sesion.routine_type || '').toUpperCase()]),
+      createElement('div', { class: 'g-session-name' }, [sesion.nombre || 'Workout']),
+      createElement('div', { class: 'g-recent-sub', style: 'margin-top:6px;' }, [gymFormatDateLong(sesion.fecha)])
+    ]);
+    wrap.appendChild(header);
+
+    // Stats
+    var stats = createElement('div', { class: 'g-confirm-summary', style: 'margin-top:14px;' }, [
+      buildConfirmRow('Duración', sesion.duracion_ms ? gymFormatDuration(sesion.duracion_ms) : '—'),
+      buildConfirmRow('Ejercicios', String(nEj)),
+      buildConfirmRow('Sets completados', done + ' / ' + visible.length),
+      buildConfirmRow('Volumen total', volLbs.toLocaleString('es-MX') + ' lbs')
+    ]);
+    wrap.appendChild(stats);
+
+    // Lista por ejercicio
+    var byEj = {};
+    visible.forEach(function(s) {
+      if (!byEj[s.ejercicio_id]) byEj[s.ejercicio_id] = [];
+      byEj[s.ejercicio_id].push(s);
+    });
+    Object.keys(byEj).forEach(function(ejId) {
+      var ej = ejMap[ejId];
+      if (!ej) return;
+      var ejCard = createElement('div', { class: 'g-exercise-card', style: 'margin-top:10px;' });
+      ejCard.appendChild(createElement('div', { class: 'g-exercise-head' }, [
+        createElement('div', { class: 'g-exercise-name' }, [ej.nombre])
+      ]));
+      var setsList = createElement('div', { class: 'g-sets-list' });
+      byEj[ejId].forEach(function(st, idx) {
+        var weightLbs = gymWeightLbsNum(Number(st.peso) || 0);
+        var statusLabel = st.status === GYM_STATUS.SKIPPED ? ' · saltado'
+                        : st.status === GYM_STATUS.PENDING ? ' · pendiente' : '';
+        setsList.appendChild(createElement('div', { class: 'g-set-row' }, [
+          createElement('div', { class: 'g-set-info' }, [
+            'Set #' + (idx + 1) + ' · ' + weightLbs + ' lbs × ' + (Number(st.reps) || 0) + ' reps' + statusLabel
+          ])
+        ]));
+      });
+      ejCard.appendChild(setsList);
+      wrap.appendChild(ejCard);
+    });
+
+    if (Object.keys(byEj).length === 0) {
+      wrap.appendChild(createElement('div', { class: 'g-empty-card', style: 'margin-top:10px;' }, [
+        'Esta sesión no tiene sets registrados.'
+      ]));
+    }
+
+    // Botones
+    var actions = createElement('div', { style: 'display:flex;flex-direction:column;gap:10px;margin-top:18px;' });
+    var editBtn = createElement('button', { class: 'g-btn-secondary', type: 'button' }, ['✏️ Editar duración']);
+    editBtn.addEventListener('click', function() {
+      gymOpenEditDurationModal(sesion, function() {
+        gymRenderSessionDetail(panel, sesionId, fromAll);
+      });
+    });
+    actions.appendChild(editBtn);
+
+    var delBtn = createElement('button', { class: 'g-btn-secondary', type: 'button',
+      style: 'color:var(--danger);' }, ['🗑️ Eliminar sesión']);
+    delBtn.addEventListener('click', function() {
+      gymOpenDeleteSessionModal(sesion, visible.length, nEj, function() {
+        if (fromAll) gymRenderAllSessions(panel);
+        else gymRenderEntrenar(panel);
+      });
+    });
+    actions.appendChild(delBtn);
+    wrap.appendChild(actions);
+  });
+}
+
+function gymTsToDatetimeLocal(ms) {
+  var d = new Date(ms);
+  var pad = function(n) { return n < 10 ? '0' + n : '' + n; };
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+    + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+
+function gymOpenEditDurationModal(sesion, onSaved) {
+  var inicioMs = sesion.timestamp_inicio || new Date(sesion.fecha).getTime();
+  var finMs = inicioMs + (sesion.duracion_ms || 0);
+
+  var modal = createElement('div', { class: 'g-modal' });
+  modal.appendChild(createElement('div', { class: 'g-modal-handle' }));
+  modal.appendChild(createElement('div', { class: 'g-modal-head' }, [
+    createElement('div', { class: 'g-modal-title' }, ['Editar duración']),
+    gymBuildModalClose(function() { overlay.remove(); })
+  ]));
+
+  modal.appendChild(createElement('div', { class: 'g-modal-sub' }, ['Hora de inicio']));
+  var inicioStr = new Date(inicioMs).toLocaleString('es-MX', {
+    weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+  });
+  modal.appendChild(createElement('div', {
+    class: 'g-modal-input',
+    style: 'opacity:.6;pointer-events:none;'
+  }, [inicioStr]));
+
+  modal.appendChild(createElement('div', { class: 'g-modal-sub', style: 'margin-top:14px;' }, ['Hora de fin']));
+  var finInput = createElement('input', {
+    class: 'g-modal-input', type: 'datetime-local',
+    value: gymTsToDatetimeLocal(finMs)
+  });
+  modal.appendChild(finInput);
+
+  var hint = createElement('div', { class: 'g-modal-sub', style: 'margin-top:10px;color:rgba(255,255,255,.5);' }, [
+    'Se guardará la duración como (fin − inicio).'
+  ]);
+  modal.appendChild(hint);
+
+  var saveBtn = createElement('button', { class: 'g-btn-primary', type: 'button' }, ['Guardar']);
+  saveBtn.addEventListener('click', function() {
+    var v = finInput.value;
+    if (!v) { showToast('Elige una hora de fin'); return; }
+    var newFin = new Date(v).getTime();
+    if (isNaN(newFin)) { showToast('Hora inválida'); return; }
+    var newDur = newFin - inicioMs;
+    if (newDur <= 0) { showToast('La hora de fin debe ser posterior al inicio'); return; }
+    sesion.duracion_ms = newDur;
+    dbPut('sesiones', sesion).then(function() {
+      overlay.remove();
+      showToast('Duración actualizada');
+      if (typeof onSaved === 'function') onSaved();
+    });
+  });
+  modal.appendChild(saveBtn);
+  var cancelBtn = createElement('button', { class: 'g-btn-secondary', type: 'button' }, ['Cancelar']);
+  cancelBtn.addEventListener('click', function() { overlay.remove(); });
+  modal.appendChild(cancelBtn);
+
+  var overlay = gymOpenOverlay(modal);
+}
+
+function gymOpenDeleteSessionModal(sesion, nSets, nEj, onDeleted) {
+  var modal = createElement('div', { class: 'g-modal' });
+  modal.appendChild(createElement('div', { class: 'g-modal-handle' }));
+  modal.appendChild(createElement('div', { class: 'g-modal-head' }, [
+    createElement('div', { class: 'g-modal-title' }, ['¿Eliminar sesión?']),
+    gymBuildModalClose(function() { overlay.remove(); })
+  ]));
+
+  modal.appendChild(createElement('div', { class: 'g-confirm-summary' }, [
+    buildConfirmRow('Sesión', sesion.nombre || 'Workout'),
+    buildConfirmRow('Rutina', sesion.routine_type || '—'),
+    buildConfirmRow('Fecha', gymFormatDateLong(sesion.fecha)),
+    buildConfirmRow('Ejercicios', String(nEj)),
+    buildConfirmRow('Sets', String(nSets))
+  ]));
+
+  modal.appendChild(createElement('div', { class: 'g-confirm-warn' }, [
+    'Esta acción no se puede deshacer. Se eliminarán la sesión y todos sus sets. Los ejercicios del directorio no se tocan.'
+  ]));
+
+  var okBtn = createElement('button', { class: 'g-btn-primary', type: 'button',
+    style: 'background:var(--danger);' }, ['Eliminar definitivamente']);
+  okBtn.addEventListener('click', function() {
+    dbGetAll('sets').then(function(all) {
+      var toDel = all.filter(function(s) { return s.sesion_id === sesion.id; });
+      return Promise.all(toDel.map(function(s) { return dbDelete('sets', s.id); }));
+    }).then(function() {
+      return dbDelete('sesiones', sesion.id);
+    }).then(function() {
+      overlay.remove();
+      showToast('Sesión eliminada');
+      if (typeof onDeleted === 'function') onDeleted();
+    });
+  });
+  modal.appendChild(okBtn);
+  var cancelBtn = createElement('button', { class: 'g-btn-secondary', type: 'button' }, ['Cancelar']);
+  cancelBtn.addEventListener('click', function() { overlay.remove(); });
+  modal.appendChild(cancelBtn);
+
+  var overlay = gymOpenOverlay(modal);
 }
 
 function gymShowStartModal(panel) {
