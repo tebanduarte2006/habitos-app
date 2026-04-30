@@ -1,5 +1,5 @@
 // Service Worker — Hábitos App
-var CACHE = "habitos-" + "20260428-3";
+var CACHE = "habitos-" + "20260429-1";
 var ASSETS = [
   "./",
   "./index.html",

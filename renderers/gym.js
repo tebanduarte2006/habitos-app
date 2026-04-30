@@ -112,8 +112,85 @@ function gymStatusChip(status, onClick) {
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
+// ─── Migración de músculos duplicados (singular/plural, mayúsculas, acentos) ───
+// Una vez por dispositivo: agrupa nombres de músculos por su "stem" (sin acentos,
+// sin sufijo plural -es/-s). Si hay variantes, gana la que tenga MÁS ejercicios
+// atribuidos; las demás se reemplazan in-place en ejercicios.musculo_primario.
+// Marcado en `preferencias.gym_muscle_dedup_v1` para no repetirse.
+function gymMuscleStem(s) {
+  var k = gymNormalizeKey(s);
+  if (k.length > 4 && /es$/.test(k)) return k.slice(0, -2);
+  if (k.length > 3 && /s$/.test(k))  return k.slice(0, -1);
+  return k;
+}
+
+function gymRunMuscleDedup() {
+  return dbGet('preferencias', 'gym_muscle_dedup_v1').then(function(flag) {
+    if (flag && flag.valor) return null;
+    return dbGetAll('ejercicios').then(function(ejs) {
+      var counts = {};
+      ejs.forEach(function(e) {
+        gymParseMuscleArr(e.musculo_primario).forEach(function(m) {
+          if (!m) return;
+          counts[m] = (counts[m] || 0) + 1;
+        });
+      });
+      var groups = {};
+      Object.keys(counts).forEach(function(name) {
+        var stem = gymMuscleStem(name);
+        if (!stem) return;
+        if (!groups[stem]) groups[stem] = [];
+        groups[stem].push(name);
+      });
+      var remap = {};
+      Object.keys(groups).forEach(function(stem) {
+        var variants = groups[stem];
+        if (variants.length < 2) return;
+        variants.sort(function(a, b) {
+          if (counts[b] !== counts[a]) return counts[b] - counts[a];
+          if (b.length !== a.length)   return b.length - a.length;
+          return a.localeCompare(b);
+        });
+        var canonical = variants[0];
+        for (var i = 1; i < variants.length; i++) {
+          if (variants[i] !== canonical) remap[variants[i]] = canonical;
+        }
+      });
+      var keys = Object.keys(remap);
+      if (keys.length === 0) {
+        return dbPut('preferencias', { clave: 'gym_muscle_dedup_v1', valor: true });
+      }
+      var updates = [];
+      ejs.forEach(function(e) {
+        var arr = gymParseMuscleArr(e.musculo_primario);
+        var changed = false;
+        var seen = {};
+        var newArr = [];
+        arr.forEach(function(m) {
+          var c = Object.prototype.hasOwnProperty.call(remap, m) ? remap[m] : m;
+          if (c !== m) changed = true;
+          var key = gymNormalizeKey(c);
+          if (!seen[key]) { seen[key] = true; newArr.push(c); }
+          else { changed = true; }
+        });
+        if (changed) {
+          e.musculo_primario = JSON.stringify(newArr);
+          updates.push(dbPut('ejercicios', e));
+        }
+      });
+      return Promise.all(updates).then(function() {
+        try { console.log('[gym] muscle dedup applied:', remap); } catch (_) {}
+        return dbPut('preferencias', { clave: 'gym_muscle_dedup_v1', valor: true });
+      });
+    });
+  }).catch(function(err) {
+    try { console.warn('[gym] dedup skipped:', err); } catch (_) {}
+  });
+}
+
 function renderGymModule(container) {
   container.innerHTML = '';
+  gymRunMuscleDedup();
 
   // Título grande "Gym" + tab bar
   container.appendChild(createElement('h1', { class: 'g-screen-title' }, ['Gym']));
@@ -925,9 +1002,12 @@ function gymBuildSetRow(sesion, ej, set, setNum, listEl) {
 function gymBuildAddSetRow(sesion, ej, sets, listEl) {
   var setUnit = 'lbs';
   var addRow = createElement('div', { class: 'g-add-set' });
+  // type='text' + inputmode='decimal' para que iOS muestre el teclado con punto/coma decimal.
+  // type='number' en iOS Safari oculta el separador decimal en muchos layouts.
   var pesoInput = createElement('input', {
-    class: 'g-input-num', type: 'number',
-    placeholder: 'Peso', step: '0.5', inputmode: 'decimal'
+    class: 'g-input-num', type: 'text',
+    placeholder: 'Peso', inputmode: 'decimal',
+    autocomplete: 'off', pattern: '[0-9]*[.,]?[0-9]*'
   });
 
   // Toggle de unidad estilo segmented control
@@ -950,7 +1030,8 @@ function gymBuildAddSetRow(sesion, ej, sets, listEl) {
     class: 'g-confirm-set', type: 'button', title: 'Confirmar set'
   }, ['+']);
   confirmBtn.addEventListener('click', function() {
-    var inputVal = parseFloat(pesoInput.value);
+    var rawPeso = String(pesoInput.value || '').replace(',', '.').trim();
+    var inputVal = parseFloat(rawPeso);
     var reps = parseInt(repsInput.value, 10);
     if (!(inputVal >= 0) || !(reps > 0)) { showToast('Peso y reps requeridos'); return; }
     var pesoKg = gymInputToKg(inputVal, setUnit);
